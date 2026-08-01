@@ -12,12 +12,16 @@
  * over auto-generated class names, which tend to be the first thing that
  * changes.
  *
- * NOTE: because this environment has no live browser access, these
- * selectors were derived from a static fetch of jobs.apple.com's
+ * NOTE: because this environment has no live browser access, most of
+ * these selectors were derived from a static fetch of jobs.apple.com's
  * server-rendered markup rather than verified end-to-end with Playwright.
- * Before relying on this scraper, run it once with HEADLESS=false and
- * `npx playwright codegen https://jobs.apple.com/en-us/search` side by
- * side to confirm/adjust the selectors below.
+ * The search input under `search.searchInputCandidates` is an exception —
+ * its primary selector (`input.search-typeahead-input`) was confirmed
+ * directly against the real rendered DOM. Everything else (pagination,
+ * detail-page fields) still hasn't been. Before relying on this scraper,
+ * run it once with HEADLESS=false and `npx playwright codegen
+ * https://jobs.apple.com/en-us/search` side by side to confirm/adjust
+ * the rest.
  */
 
 export const AppleUrls = {
@@ -49,15 +53,27 @@ export const AppleSelectors = {
    * list/row markup.
    */
   search: {
-    /** The free-text "what" search box on the search page, tried in order. */
+    /**
+     * The free-text search box on the search page — confirmed from the
+     * real DOM (a typeahead/combobox: `aria-autocomplete="list"`,
+     * `aria-controls="suggestions-list"`, class `search-typeahead-input`).
+     * There is no separate submit button in this component; submitting
+     * the typed text is done via Enter on the input itself, handled in
+     * `performSearch`.
+     */
     searchInputCandidates: [
-      'input[type="search"]',
+      "input.search-typeahead-input",
+      'input[aria-label="Search by role or keyword"]',
       'input[aria-label*="search" i]',
       'input[placeholder*="search" i]',
+      'input[type="search"]',
       "#search",
-      'input[name="search"]',
     ],
-    /** Explicit submit control, only needed if pressing Enter doesn't trigger a search. */
+    /**
+     * Fallback only — this typeahead component doesn't expose a separate
+     * submit button as of the last DOM check; Enter on the input is the
+     * real submission path. Kept in case a future redesign adds one.
+     */
     searchSubmitCandidates: [
       'button[aria-label*="search" i]',
       'button:has-text("Search")',

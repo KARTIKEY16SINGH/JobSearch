@@ -131,7 +131,14 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
     }
 
     await input.click();
-    await input.fill(role);
+    await input.fill(""); // clear any stale value first
+    await input.pressSequentially(role, { delay: 60 });
+
+    // This is a live typeahead (aria-autocomplete="list") that debounces a
+    // suggestions lookup as you type. Give that a moment to settle before
+    // submitting, so Enter reliably submits the free-text query instead of
+    // racing an in-flight request.
+    await page.waitForTimeout(500);
 
     const urlBeforeSubmit = page.url();
     await input.press("Enter");
