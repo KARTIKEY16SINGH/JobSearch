@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   // Adding a new company: implement CareerSiteScraper (see
   // scrapers/base/career-site-scraper.ts) and register() it here.
   const registry = new ScraperRegistry();
-  registry.register(new AppleCareersScraper());
+  registry.register(new AppleCareersScraper({ locale: process.env.APPLE_LOCALE || "en-us" }));
 
   // --- Resolve run options: flags, interactive prompts, or a mix ---------
   const needsPrompts = partial.interactive || !partial.role;

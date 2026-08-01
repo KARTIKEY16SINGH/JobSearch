@@ -28,7 +28,8 @@ export const AppleUrls = {
   base: "https://jobs.apple.com",
 
   /**
-   * The Careers search page, with no query string.
+   * Builds the Careers search page URL for a given locale, with no query
+   * string.
    *
    * Search is deliberately NOT done by navigating straight to
    * `?search=<role>`. That looked like it should work — the URL format is
@@ -41,16 +42,24 @@ export const AppleUrls = {
    * hydrate into the same state. So instead, `AppleCareersScraper` loads
    * this plain landing page and drives the real search box, the same way
    * a person would.
+   *
+   * `locale` is the URL path segment Apple uses per region, e.g. "en-us",
+   * "en-in", "en-gb" — pass `{ locale: "en-in" }` to `AppleCareersScraper`
+   * to search a different one; it defaults to "en-us".
    */
-  searchPageUrl: "https://jobs.apple.com/en-us/search",
+  searchPageUrl(locale: string): string {
+    return `https://jobs.apple.com/${locale}/search`;
+  },
 };
 
 export const AppleSelectors = {
   /**
    * Search results page. Job titles render as links into
-   * `/en-us/details/{roleNumber}/{slug}`, which is the most stable hook
-   * on the page — used directly instead of relying on the surrounding
-   * list/row markup.
+   * `/{locale}/details/{roleNumber}/{slug}` — e.g. `/en-us/details/...` or
+   * `/en-in/details/...` depending on which locale's search page you're
+   * on (see `AppleUrls.searchPageUrl`). The selector below matches on
+   * `/details/` only, deliberately without a locale segment, so it keeps
+   * working regardless of which locale URL is configured.
    */
   search: {
     /**
@@ -79,7 +88,7 @@ export const AppleSelectors = {
       'button:has-text("Search")',
       'button[type="submit"]',
     ],
-    resultLinks: 'a[href*="/en-us/details/"]',
+    resultLinks: 'a[href*="/details/"]',
     resultsCount: 'text=/[0-9,]+\\+?\\s+Result/i',
     noResults: "text=/no results|0 results/i",
     /** Common "next page" affordances, tried in order until one matches. */
@@ -93,7 +102,7 @@ export const AppleSelectors = {
   },
 
   /**
-   * Job detail page (`/en-us/details/{roleNumber}/{slug}`).
+   * Job detail page (`/{locale}/details/{roleNumber}/{slug}`).
    */
   detail: {
     title: "h1",

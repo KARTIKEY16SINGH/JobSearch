@@ -7,6 +7,12 @@ import { AppleSelectors, AppleUrls } from "./selectors";
 export interface AppleCareersScraperOptions {
   /** Safety cap on pagination even if the caller didn't set maxResults. */
   maxPages?: number;
+  /**
+   * Apple locale path segment, e.g. "en-us", "en-in", "en-gb". Controls
+   * which localized search page is loaded (`https://jobs.apple.com/{locale}/search`).
+   * Defaults to "en-us".
+   */
+  locale?: string;
 }
 
 /**
@@ -19,10 +25,12 @@ export interface AppleCareersScraperOptions {
 export class AppleCareersScraper extends AbstractCareerSiteScraper {
   readonly siteName = "apple";
   private readonly maxPages: number;
+  private readonly searchPageUrl: string;
 
   constructor(options: AppleCareersScraperOptions = {}) {
     super();
     this.maxPages = options.maxPages ?? 5;
+    this.searchPageUrl = AppleUrls.searchPageUrl(options.locale ?? "en-us");
   }
 
   async search(context: BrowserContext, criteria: SearchCriteria): Promise<JobListingSummary[]> {
@@ -33,7 +41,7 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
     try {
       this.logger.info(`Searching Apple Careers for "${criteria.role}" via the on-page search box.`);
 
-      await withRetry(() => page.goto(AppleUrls.searchPageUrl, { waitUntil: "domcontentloaded" }), {
+      await withRetry(() => page.goto(this.searchPageUrl, { waitUntil: "domcontentloaded" }), {
         logger: this.logger,
         label: "apple.search.goto",
       });
