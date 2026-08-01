@@ -24,22 +24,21 @@ export const AppleUrls = {
   base: "https://jobs.apple.com",
 
   /**
-   * Builds a search results URL from a free-text role.
+   * The Careers search page, with no query string.
    *
-   * Deliberately does NOT accept a location here. Apple's `location` query
-   * param only accepts exact facet codes from its own location picker
-   * (e.g. `india-INDC`, `new-delhi-NDS`, `united-states-USA`) — arbitrary
-   * text like "India" doesn't get ignored, it matches zero jobs. Rather
-   * than maintain a lookup table of every city/country code, location
-   * filtering is applied client-side after scraping (see
-   * `AppleCareersScraper` — it checks each job's displayed location
-   * against `SearchCriteria.location` as a case-insensitive substring).
+   * Search is deliberately NOT done by navigating straight to
+   * `?search=<role>`. That looked like it should work — the URL format is
+   * real, Apple's own listing pages use it — but a cold direct load of
+   * that URL does not reliably return the same results as typing the
+   * same text into the on-page search box and submitting it. This is a
+   * common failure mode for client-rendered SPAs: the app's own search
+   * flow updates internal state via its search form/JS, and a hard
+   * navigation to a URL with the same query string doesn't always
+   * hydrate into the same state. So instead, `AppleCareersScraper` loads
+   * this plain landing page and drives the real search box, the same way
+   * a person would.
    */
-  buildSearchUrl(role: string): string {
-    const url = new URL("https://jobs.apple.com/en-us/search");
-    url.searchParams.set("search", role);
-    return url.toString();
-  },
+  searchPageUrl: "https://jobs.apple.com/en-us/search",
 };
 
 export const AppleSelectors = {
@@ -50,6 +49,20 @@ export const AppleSelectors = {
    * list/row markup.
    */
   search: {
+    /** The free-text "what" search box on the search page, tried in order. */
+    searchInputCandidates: [
+      'input[type="search"]',
+      'input[aria-label*="search" i]',
+      'input[placeholder*="search" i]',
+      "#search",
+      'input[name="search"]',
+    ],
+    /** Explicit submit control, only needed if pressing Enter doesn't trigger a search. */
+    searchSubmitCandidates: [
+      'button[aria-label*="search" i]',
+      'button:has-text("Search")',
+      'button[type="submit"]',
+    ],
     resultLinks: 'a[href*="/en-us/details/"]',
     resultsCount: 'text=/[0-9,]+\\+?\\s+Result/i',
     noResults: "text=/no results|0 results/i",

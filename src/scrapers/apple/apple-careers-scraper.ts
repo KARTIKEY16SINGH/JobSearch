@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Locator, Page } from "playwright";
 import { AbstractCareerSiteScraper } from "../base/career-site-scraper";
 import type { JobListing, JobListingSummary, SearchCriteria } from "../../core/types";
 import { withRetry } from "../../core/retry";
@@ -31,15 +31,16 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
     const seenUrls = new Set<string>();
 
     try {
-      const searchUrl = AppleUrls.buildSearchUrl(criteria.role);
-      this.logger.info(`Searching Apple Careers for "${criteria.role}"`, { searchUrl });
+      this.logger.info(`Searching Apple Careers for "${criteria.role}" via the on-page search box.`);
 
-      await withRetry(() => page.goto(searchUrl, { waitUntil: "domcontentloaded" }), {
+      await withRetry(() => page.goto(AppleUrls.searchPageUrl, { waitUntil: "domcontentloaded" }), {
         logger: this.logger,
         label: "apple.search.goto",
       });
 
-      // The results page renders client-side, so domcontentloaded alone
+      await this.performSearch(page, criteria.role);
+
+      // The results page renders client-side, so submitting the search
       // doesn't guarantee results (or a no-results message) are visible
       // yet. Wait for whichever shows up first before deciding anything.
       await Promise.race([
@@ -112,6 +113,56 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
     } finally {
       await page.close();
     }
+  }
+
+  /**
+   * Types the role into Apple's on-page search box and submits it,
+   * mirroring what a person does — see the comment on
+   * `AppleUrls.searchPageUrl` for why this replaced a `?search=` URL.
+   */
+  private async performSearch(page: Page, role: string): Promise<void> {
+    const input = await this.findFirstVisible(page, AppleSelectors.search.searchInputCandidates);
+    if (!input) {
+      throw new Error(
+        "Could not find the search input box on the Apple Careers page. The selectors in " +
+          "scrapers/apple/selectors.ts (search.searchInputCandidates) likely need updating for " +
+          "the current site markup."
+      );
+    }
+
+    await input.click();
+    await input.fill(role);
+
+    const urlBeforeSubmit = page.url();
+    await input.press("Enter");
+
+    // Give the SPA a moment to apply the search. Prefer detecting an
+    // actual URL/network change; fall back to a short fixed wait if the
+    // site doesn't update the URL for a client-side search.
+    const navigated = await page
+      .waitForURL((url) => url.toString() !== urlBeforeSubmit, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (!navigated) {
+      const submitButton = await this.findFirstVisible(page, AppleSelectors.search.searchSubmitCandidates);
+      if (submitButton) {
+        await submitButton.click().catch(() => {});
+      }
+    }
+
+    await page.waitForLoadState("networkidle").catch(() => {});
+  }
+
+  /** Returns the first selector (in order) that matches a currently visible element, or null. */
+  private async findFirstVisible(page: Page, candidates: string[]): Promise<Locator | null> {
+    for (const selector of candidates) {
+      const locator = page.locator(selector).first();
+      if ((await locator.count()) > 0 && (await locator.isVisible().catch(() => false))) {
+        return locator;
+      }
+    }
+    return null;
   }
 
   /** Extracts job links from the current results page and appends new ones to `summaries`. */
