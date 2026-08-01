@@ -1,6 +1,6 @@
 import { parseCliArgs, printUsage, type CliArgs } from "./cli/args";
 import { runInteractivePrompts } from "./cli/interactive";
-import { loadConfig } from "./config/env";
+import { loadConfig } from "./config/load-config";
 import { BrowserManager } from "./core/browser-manager";
 import { Logger } from "./core/logger";
 import type { SearchCriteria } from "./core/types";
@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   // Adding a new company: implement CareerSiteScraper (see
   // scrapers/base/career-site-scraper.ts) and register() it here.
   const registry = new ScraperRegistry();
-  registry.register(new AppleCareersScraper({ locale: process.env.APPLE_LOCALE || "en-us" }));
+  registry.register(new AppleCareersScraper({ locale: config.appleLocale }));
 
   // --- Resolve run options: flags, interactive prompts, or a mix ---------
   const needsPrompts = partial.interactive || !partial.role;
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
         writers.push(new ConsoleWriter());
       } else if (output === "sheets") {
         if (!config.googleSheets.enabled) {
-          logger.error("Requested --output sheets but GOOGLE_SHEET_URL is not set in .env.");
+          logger.error("Requested --output sheets but googleSheets.sheetUrl is empty in src/config/app.config.ts.");
           process.exitCode = 1;
           return;
         }

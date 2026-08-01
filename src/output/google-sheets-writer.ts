@@ -1,5 +1,5 @@
 import type { BrowserContext, Page } from "playwright";
-import type { GoogleSheetsConfig } from "../config/env";
+import type { GoogleSheetsConfig } from "../config/load-config";
 import { Logger } from "../core/logger";
 import type { JobListing, WriteMeta } from "../core/types";
 import type { OutputWriter } from "./output-writer";
@@ -22,9 +22,9 @@ const COLUMNS: Array<{ header: string; value: (job: JobListing) => string }> = [
  * Playwright, reusing the same persistent `BrowserContext` the scraper
  * used — per the project requirement, this deliberately avoids the
  * Google Sheets API. Login is handled by the persistent profile: the
- * first time you run this with HEADLESS=false, sign into Google normally
- * in the opened tab; the session cookie is then reused on every
- * subsequent run (see README for details).
+ * first time you run this with `headless: false` in `app.config.ts`,
+ * sign into Google normally in the opened tab; the session cookie is
+ * then reused on every subsequent run (see README for details).
  *
  * Mechanism: select the target cell via Sheets' "Name box", write the
  * job data to the OS clipboard as tab-separated values, and paste —
@@ -84,9 +84,10 @@ export class GoogleSheetsWriter implements OutputWriter {
 
     if (onGoogleLogin || signInVisible) {
       throw new Error(
-        "Google Sheets is not logged in on this browser profile. Run the app once with " +
-          "HEADLESS=false, sign into Google manually in the window that opens, then leave " +
-          "HEADLESS as you like for future runs — the login is stored in USER_DATA_DIR."
+        "Google Sheets is not logged in on this browser profile. Set headless: false in " +
+          "src/config/app.config.ts, run the app once, sign into Google manually in the window " +
+          "that opens, then set headless back to whatever you like — the login is stored in " +
+          "the userDataDir folder from app.config.ts."
       );
     }
 

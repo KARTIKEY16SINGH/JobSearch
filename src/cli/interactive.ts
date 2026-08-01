@@ -148,7 +148,7 @@ async function askOutputs(
 
   if (!sheetsConfigured) {
     console.log(
-      "(Google Sheets output not offered: set GOOGLE_SHEET_URL in .env to enable it.)"
+      "(Google Sheets output not offered: set googleSheets.sheetUrl in src/config/app.config.ts to enable it.)"
     );
     return ["console"];
   }

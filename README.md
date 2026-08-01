@@ -34,7 +34,9 @@ src/
   orchestrator/
     job-search-runner.ts         Runs one scraper end-to-end, fans out to writers
 
-  config/env.ts           Loads and validates .env into a typed AppConfig
+  config/
+    app.config.ts         Every setting you'd want to change — edit this
+    load-config.ts        Shapes app.config.ts into a typed AppConfig
   cli/args.ts              Minimal --flag argument parsing
   index.ts                  Wires everything together
 ```
@@ -64,18 +66,29 @@ src/
 ```bash
 npm install
 npx playwright install chromium   # if postinstall didn't already do this
-cp .env.example .env
 ```
 
-Edit `.env`:
+All settings live in one plain file: `src/config/app.config.ts`. Open it
+and edit the values directly — no `.env`, no environment variables:
 
+```ts
+export const appConfig = {
+  headless: false,
+  userDataDir: "./.browser-profile",
+  defaultTimeoutMs: 30000,
+  apple: {
+    locale: "en-in", // "en-us", "en-gb", etc.
+  },
+  googleSheets: {
+    sheetUrl: "https://docs.google.com/spreadsheets/d/<your-sheet-id>/edit",
+    sheetTab: "Jobs",
+    startCell: "A1",
+  },
+};
 ```
-HEADLESS=false
-USER_DATA_DIR=./.browser-profile
-GOOGLE_SHEET_URL=https://docs.google.com/spreadsheets/d/<your-sheet-id>/edit
-GOOGLE_SHEET_TAB=Jobs
-GOOGLE_SHEET_START_CELL=A1
-```
+
+Leave `googleSheets.sheetUrl` as `""` if you just want console output for
+now.
 
 ### First run: log into Google once
 
@@ -83,13 +96,13 @@ GOOGLE_SHEET_START_CELL=A1
 persistent profile — it never handles credentials itself. The first time
 you want to write to Sheets:
 
-1. Keep `HEADLESS=false`.
+1. Keep `headless: false` in `app.config.ts`.
 2. Run the app with `--output sheets` (see below).
 3. A visible Chromium window opens the target sheet. If it lands on a
    Google sign-in page, log in manually in that window.
-4. The session is saved to `USER_DATA_DIR` and reused on every future run
-   — headless or not — until the session expires or you delete that
-   folder.
+4. The session is saved to the `userDataDir` folder and reused on every
+   future run — headless or not — until the session expires or you
+   delete that folder.
 
 ## Usage
 
@@ -127,8 +140,8 @@ Ready:
 Start the search? [Y/n]:
 ```
 
-The Google Sheets option is only offered when `GOOGLE_SHEET_URL` is set in
-`.env`.
+The Google Sheets option is only offered when `googleSheets.sheetUrl` is
+set in `app.config.ts`.
 
 ### Flags (non-interactive / scriptable)
 
@@ -167,14 +180,46 @@ this scraper:
 npm run dev -- --role "Sales Manager" --max 3
 ```
 
-with `HEADLESS=false`, watch it run, and compare against
-`npx playwright codegen https://jobs.apple.com/en-us/search` if any field
-comes back empty. All DOM-specific fixes belong in `selectors.ts` only —
-you should not need to touch `apple-careers-scraper.ts`.
+with `headless: false` in `app.config.ts`, watch it run, and compare
+against `npx playwright codegen https://jobs.apple.com/en-us/search` if
+any field comes back empty. All DOM-specific fixes belong in
+`selectors.ts` only — you should not need to touch
+`apple-careers-scraper.ts`.
 
 The scraper is written to degrade field-by-field rather than fail a whole
 job: if e.g. "team" isn't found, that job is still returned with the other
 fields populated and `team` omitted.
+
+## How search actually works
+
+The role/keyword search is driven through Apple's real on-page search box
+— the scraper loads the plain locale search page (default
+`https://jobs.apple.com/en-us/search`, see "Locales" below), types the
+role into the search input, and submits it, rather than navigating
+straight to `?search=<role>`. A cold direct load of that URL turned out
+not to reliably return the same results as typing the same text into the
+box: a common failure mode for client-rendered SPAs, where the app's
+search flow updates internal state via its own form/JS and a hard
+navigation to the "same" URL doesn't always hydrate into that state. If
+the search box's selector ever needs adjusting, it's
+`search.searchInputCandidates` in `selectors.ts`.
+
+Job detail links are matched on `/details/` only (not `/en-us/details/`)
+so this keeps working across locales — see "Locales" below for why that
+distinction matters.
+
+## Locales
+
+Set `apple.locale` in `src/config/app.config.ts` (this repo currently
+ships with it set to `en-in`) to search a different regional Careers
+site, e.g. `en-us` for the US, `en-gb` for the UK. This controls which
+`jobs.apple.com/<locale>/search` page gets loaded.
+
+One thing that bit an earlier version of this scraper: job detail links
+are locale-prefixed (`/en-in/details/...`, not always `/en-us/details/...`),
+so `search.resultLinks` in `selectors.ts` deliberately matches on
+`/details/` alone — if you ever see it re-narrowed to a specific locale
+prefix, that will silently return zero jobs on every other locale.
 
 ## How the location filter works
 
