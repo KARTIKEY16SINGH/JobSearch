@@ -7,12 +7,28 @@
  * the two sides never need to know about each other.
  */
 
+/**
+ * Sentinel used by scrapers when a job's location genuinely couldn't be
+ * extracted from the page. Kept as a shared constant (rather than each
+ * scraper inventing its own string) so the location filter in
+ * `JobSearchRunner` can tell "location is known and doesn't match" apart
+ * from "location is unknown" — those must be handled differently: an
+ * unknown location should never be silently treated as a non-match.
+ */
+export const UNKNOWN_LOCATION = "Not specified";
+
 /** Criteria supplied by the user (or, later, a saved search profile). */
 export interface SearchCriteria {
   /** Free-text role/title to search for, e.g. "Sales Manager". */
   role: string;
   /** Optional location filter, e.g. "California" or "Remote". */
   location?: string;
+  /**
+   * Optional cap on required years of experience. Jobs whose description
+   * mentions a minimum experience requirement above this are filtered
+   * out. Best-effort — see `core/experience.ts`.
+   */
+  maxYearsExperience?: number;
   /** Optional extra keywords a scraper may use to refine/filter results. */
   keywords?: string[];
   /** Hard cap on the number of jobs to fully extract. Useful for testing. */

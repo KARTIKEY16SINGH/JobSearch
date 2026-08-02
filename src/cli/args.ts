@@ -3,6 +3,7 @@ export interface CliArgs {
   location?: string;
   site: string;
   maxResults?: number;
+  maxYearsExperience?: number;
   outputs: string[];
 }
 
@@ -12,6 +13,7 @@ export interface PartialCliArgs {
   location?: string;
   site?: string;
   maxResults?: number;
+  maxYearsExperience?: number;
   outputs?: string[];
   /** Forces interactive prompts even when enough flags were given to skip them. */
   interactive: boolean;
@@ -24,13 +26,14 @@ Usage:
   npm run dev -- --role "Sales Manager"          Run with flags (non-interactive)
 
 Options:
-  --role <text>         Role/title to search for
-  --location <text>     Optional location filter
-  --site <name>         Career site to search (default: apple)
-  --max <n>             Maximum number of jobs to fully extract
-  --output <list>       Comma-separated writers to use: console,sheets (default: console)
-  --interactive          Prompt for every option even if flags were also given
-  --help                  Show this message
+  --role <text>            Role/title to search for
+  --location <text>        Optional location filter
+  --site <name>             Career site to search (default: apple)
+  --max <n>                 Maximum number of jobs to fully extract
+  --max-experience <n>       Only keep jobs requiring at most n years of experience
+  --output <list>            Comma-separated writers to use: console,sheets (default: console)
+  --interactive               Prompt for every option even if flags were also given
+  --help                       Show this message
 
 If --role is omitted, the app prompts for it (and everything else)
 interactively instead of exiting with an error.
@@ -61,6 +64,7 @@ export function parseCliArgs(argv: string[]): PartialCliArgs {
   }
 
   const maxRaw = flags.get("max");
+  const maxExperienceRaw = flags.get("max-experience");
   const outputRaw = flags.get("output");
 
   return {
@@ -68,6 +72,7 @@ export function parseCliArgs(argv: string[]): PartialCliArgs {
     location: flags.get("location"),
     site: flags.get("site"),
     maxResults: maxRaw ? Number(maxRaw) : undefined,
+    maxYearsExperience: maxExperienceRaw ? Number(maxExperienceRaw) : undefined,
     outputs: outputRaw
       ? outputRaw
           .split(",")

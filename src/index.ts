@@ -1,10 +1,15 @@
+import { GeminiProvider } from "./ai/providers/gemini-provider";
+import { OpenAiProvider } from "./ai/providers/openai-provider";
 import { parseCliArgs, printUsage, type CliArgs } from "./cli/args";
 import { runInteractivePrompts } from "./cli/interactive";
+import type { AppConfig } from "./config/load-config";
 import { loadConfig } from "./config/load-config";
 import { BrowserManager } from "./core/browser-manager";
 import { Logger } from "./core/logger";
 import type { SearchCriteria } from "./core/types";
 import { JobSearchRunner } from "./orchestrator/job-search-runner";
+import { AiRelevanceMatcher, KeywordRelevanceMatcher } from "./orchestrator/relevance-matcher";
+import type { RelevanceMatcher } from "./orchestrator/relevance-matcher";
 import { ConsoleWriter } from "./output/console-writer";
 import { GoogleSheetsWriter } from "./output/google-sheets-writer";
 import type { OutputWriter } from "./output/output-writer";
@@ -12,6 +17,41 @@ import { AppleCareersScraper } from "./scrapers/apple/apple-careers-scraper";
 import { ScraperRegistry } from "./scrapers/registry";
 
 const logger = new Logger("main");
+
+/**
+ * Picks the relevance matcher per `ai.provider` in app.config.ts. This is
+ * the one place that knows which AI adapter class goes with which
+ * provider name — everything downstream just sees a `RelevanceMatcher`.
+ * Falls back to the free keyword matcher (rather than throwing) if the
+ * provider is misconfigured, so a bad AI setup never blocks a run.
+ */
+function buildRelevanceMatcher(config: AppConfig): RelevanceMatcher {
+  const keywordMatcher = new KeywordRelevanceMatcher();
+
+  if (config.ai.provider === "openai") {
+    if (!config.ai.openaiApiKey) {
+      logger.warn(
+        'ai.provider is "openai" in app.config.ts but openaiApiKey is empty in secrets.local.ts — using the keyword matcher instead.'
+      );
+      return keywordMatcher;
+    }
+    const provider = new OpenAiProvider({ apiKey: config.ai.openaiApiKey, model: config.ai.openaiModel });
+    return new AiRelevanceMatcher({ provider, fallback: keywordMatcher });
+  }
+
+  if (config.ai.provider === "gemini") {
+    if (!config.ai.geminiApiKey) {
+      logger.warn(
+        'ai.provider is "gemini" in app.config.ts but geminiApiKey is empty in secrets.local.ts — using the keyword matcher instead.'
+      );
+      return keywordMatcher;
+    }
+    const provider = new GeminiProvider({ apiKey: config.ai.geminiApiKey, model: config.ai.geminiModel });
+    return new AiRelevanceMatcher({ provider, fallback: keywordMatcher });
+  }
+
+  return keywordMatcher;
+}
 
 async function main(): Promise<void> {
   const partial = parseCliArgs(process.argv.slice(2));
@@ -51,6 +91,7 @@ async function main(): Promise<void> {
         location: partial.location,
         site: partial.site ?? "apple",
         maxResults: partial.maxResults,
+        maxYearsExperience: partial.maxYearsExperience,
         outputs: partial.outputs ?? ["console"],
       };
 
@@ -89,9 +130,10 @@ async function main(): Promise<void> {
       role: args.role,
       location: args.location,
       maxResults: args.maxResults,
+      maxYearsExperience: args.maxYearsExperience,
     };
 
-    const runner = new JobSearchRunner(registry, writers);
+    const runner = new JobSearchRunner(registry, writers, buildRelevanceMatcher(config));
     const result = await runner.run(context, args.site, criteria);
 
     logger.info(

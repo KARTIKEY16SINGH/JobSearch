@@ -1,9 +1,10 @@
 /**
- * All settings for the app live here — no .env file needed. Edit the
- * values below directly and re-run. This file is checked into your repo,
- * so don't put real secrets in it (there aren't any needed for this
- * project: Google Sheets auth lives in the persistent browser profile in
- * `userDataDir`, not a key in this file).
+ * All non-secret settings for the app live here — no .env file needed.
+ * Edit the values below directly and re-run. This file is checked into
+ * your repo, so don't put real secrets in it. The only thing that
+ * currently needs one — an AI provider API key, if you turn on
+ * `ai.provider` below — lives in `secrets.local.ts` instead (gitignored;
+ * copy `secrets.local.example.ts` to create it).
  */
 export const appConfig = {
   /**
@@ -48,5 +49,28 @@ export const appConfig = {
 
     /** Top-left cell where the header row should be written. */
     startCell: "A1",
+  },
+
+  ai: {
+    /**
+     * Which relevance-checking strategy to use:
+     * - "none"   — the free, instant keyword matcher (default, no API key needed)
+     * - "openai" — batches every candidate job into one ChatGPT call
+     * - "gemini" — batches every candidate job into one Gemini call
+     * Requires the matching key in secrets.local.ts when set to "openai"
+     * or "gemini" — falls back to the keyword matcher automatically if
+     * the key is missing or the API call fails for any reason.
+     */
+    provider: "gemini",
+
+    openai: {
+      /** Override if you'd rather use a different OpenAI model. */
+      model: "gpt-5-nano",
+    },
+
+    gemini: {
+      /** Override if you'd rather use a different Gemini model. */
+      model: "gemini-2.5-flash-lite",
+    },
   },
 };

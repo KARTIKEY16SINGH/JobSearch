@@ -33,10 +33,18 @@ src/
 
   orchestrator/
     job-search-runner.ts         Runs one scraper end-to-end, fans out to writers
+    relevance-matcher.ts         RelevanceMatcher interface: keyword (default) + AI (batched)
+
+  ai/
+    ai-provider.ts               The one interface every AI backend implements
+    providers/
+      openai-provider.ts         ChatGPT adapter
+      gemini-provider.ts         Gemini adapter
 
   config/
     app.config.ts         Every setting you'd want to change — edit this
-    load-config.ts        Shapes app.config.ts into a typed AppConfig
+    secrets.local.ts      API keys only (gitignored) — copy from secrets.local.example.ts
+    load-config.ts        Shapes app.config.ts + secrets.local.ts into a typed AppConfig
   cli/args.ts              Minimal --flag argument parsing
   index.ts                  Wires everything together
 ```
@@ -154,6 +162,7 @@ npm run dev -- --role "Sales Manager" --max 10
 npm run dev -- --role "Sales Manager" --output sheets
 npm run dev -- --role "Sales Manager" --output console,sheets
 npm run dev -- --role "Sales Manager" --location "California"
+npm run dev -- --role "Sales Manager" --max-experience 7
 ```
 
 Any flag you omit still gets its usual default (e.g. `--site` defaults to
@@ -243,6 +252,121 @@ not fuzzy/substring matching — searching `"Sale"` won't reliably surface
 `"Sales"` roles the way a human eye would. Use the full word you're after
 (`"Sales"`, `"Sales Manager"`) for best results.
 
+One more thing: if the location filter ever seems to be dropping jobs
+that clearly do match, check the logs for a line like `"N job(s) had no
+extractable location and were kept rather than filtered"` — a location
+that couldn't be read from the page is deliberately NOT treated as a
+non-match (that would silently and incorrectly drop real matches whenever
+extraction has a hiccup). It's kept and flagged instead, so worth a
+manual glance.
+
+## How the relevance filter works
+
+Career sites' own search isn't always as strict as it looks — Apple's has
+returned jobs with no obvious connection to what was searched (e.g.
+searching "Sale" and getting a "Software Engineer: Data & AI" listing
+back). Rather than trust a site's result set blindly, every job is
+double-checked in `core/relevance.ts`: at least one meaningful word from
+the searched role has to appear in the job's **title or team name**, or
+it's dropped. Short/common words ("of", "the", "in"...) are ignored so
+this doesn't over-filter on filler words in a role like "Manager of
+Sales".
+
+Deliberately scoped to title + team, not the full description — job
+descriptions routinely mention unrelated departments in passing
+boilerplate ("works closely with sales, marketing, and engineering"),
+which made an earlier version of this check pass almost everything
+through.
+
+This runs automatically for every search — no flag needed — and is
+site-agnostic, so it applies the same way if another scraper is added
+later.
+
+## Using AI for relevance matching instead of keywords
+
+The keyword filter above is fast and free, but it's pattern matching, not
+understanding — it can't tell that "Business Development Representative"
+is a sales role without the word "sales" appearing anywhere. For that you
+need real judgment, which is what the AI-backed matcher is for.
+
+**Setup:**
+
+1. `npm install` — the Gemini adapter uses Google's official `@google/genai`
+   SDK, added as a dependency (the OpenAI adapter still uses plain
+   `fetch`, no SDK needed there).
+2. Copy `src/config/secrets.local.example.ts` to `src/config/secrets.local.ts`
+   (already gitignored) and fill in whichever key you're using:
+   ```ts
+   export const secrets = {
+     openaiApiKey: "sk-...",   // from platform.openai.com/api-keys
+     geminiApiKey: "",         // from aistudio.google.com/apikey — starts with "AIzaSy"
+   };
+   ```
+3. In `src/config/app.config.ts`, set:
+   ```ts
+   ai: {
+     provider: "openai",   // or "gemini", or "none" to go back to keyword matching
+     ...
+   }
+   ```
+
+Run the app as usual — no other code changes needed.
+
+**How it works:** after every candidate job's detail page is scraped,
+every one of them (title + team, not the full description — same
+boilerplate-noise reason as the keyword filter) is sent to the configured
+AI provider in a **single batched call** — not one call per job — asking
+it to return which ones are genuinely relevant. This is why extraction
+happens in full before any filtering starts, rather than interleaved
+job-by-job like the keyword matcher can be.
+
+**Adapter architecture, for swapping or adding providers:** every AI
+backend implements one interface, `AiProvider` in `src/ai/ai-provider.ts`
+— a single `complete(prompt): Promise<string>` method. `gemini-provider.ts`
+wraps Google's official `@google/genai` SDK; `openai-provider.ts` calls
+the REST API directly with `fetch` (no SDK needed for a single-endpoint
+call like that one). Either style works — the interface only cares that
+`complete()` returns text. Nothing in `relevance-matcher.ts` or
+`job-search-runner.ts` knows which provider is active; switching is a
+one-line config change, not a code change. Adding a third provider
+(Claude, a local model, anything else) means writing one more small
+adapter file and adding one branch to `buildRelevanceMatcher` in
+`index.ts` — nothing else changes.
+
+**Reliability:** any failure — missing key, network error, rate limit, a
+response that doesn't parse as the expected JSON, or one that somehow
+matches zero candidates — automatically falls back to the free keyword
+matcher for that run, logged as a warning. An AI outage should never turn
+into zero results.
+
+**Worth knowing before turning this on:**
+- Unlike everything else in this project, this needs a real, paid API key
+  from your own OpenAI or Google account — separate from any ChatGPT/
+  Gemini subscription, billed per their API pricing.
+- Adds one network round-trip per search (a second or two), and a small
+  per-run cost — the keyword matcher is instant and free.
+- Results can vary slightly between identical runs on borderline cases —
+  it's a judgment call, not a deterministic rule.
+
+## How the experience filter works
+
+`--max-experience <n>` (or the interactive prompt) keeps only jobs whose
+description mentions a minimum years-of-experience requirement of `n` or
+fewer. This is parsed from Apple's "Minimum Qualifications" section with
+regex, in `src/core/experience.ts` — job postings phrase this
+inconsistently ("6+ years of relevant experience", "3-5 years
+experience", "minimum of 2 years professional experience"), so it's
+best-effort text matching, not a guarantee.
+
+Two behaviors worth knowing:
+- If a posting lists more than one qualifying path (e.g. "6+ years
+  experience, or a Master's degree with 2 years"), the smallest number
+  found is used — that's the easiest path to qualify under, matching what
+  "7 years or less" most likely means to you.
+- If no experience requirement could be detected at all, the job is kept
+  rather than dropped (same fail-open principle as the location filter),
+  and the run logs how many jobs fell into this bucket.
+
 ## Extending: adding a new career site
 
 1. Create `src/scrapers/<company>/selectors.ts` with that site's URLs/CSS.
@@ -260,9 +384,22 @@ not fuzzy/substring matching — searching `"Sale"` won't reliably surface
 Implement `OutputWriter` (`write(jobs, meta)`) in `src/output/`, then wire
 it up in `src/index.ts` wherever writers are selected from `--output`.
 
+## Extending: adding a new AI provider
+
+1. Create `src/ai/providers/<name>-provider.ts` implementing `AiProvider`
+   (`src/ai/ai-provider.ts`) — one method, `complete(prompt): Promise<string>`.
+   Use `openai-provider.ts` or `gemini-provider.ts` as a reference; most of
+   it is just that provider's request/response shape.
+2. Add the matching key to `secrets.local.ts` / `secrets.local.example.ts`
+   and a model setting to `app.config.ts`'s `ai` section.
+3. Add one branch to `buildRelevanceMatcher()` in `src/index.ts`.
+
+Nothing in `relevance-matcher.ts` or `job-search-runner.ts` needs to
+change — they only ever see the `AiProvider`/`RelevanceMatcher`
+interfaces.
+
 ## Roadmap (not implemented yet)
 
 - User-configurable, saved search profiles (multiple criteria sets)
-- AI-based relevance/matching scoring on top of raw scraped listings
 - Additional output targets (CSV, database)
 - Additional career-site scrapers

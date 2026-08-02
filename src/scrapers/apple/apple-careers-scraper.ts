@@ -1,6 +1,7 @@
 import type { BrowserContext, Locator, Page } from "playwright";
 import { AbstractCareerSiteScraper } from "../base/career-site-scraper";
 import type { JobListing, JobListingSummary, SearchCriteria } from "../../core/types";
+import { UNKNOWN_LOCATION } from "../../core/types";
 import { withRetry } from "../../core/retry";
 import { AppleSelectors, AppleUrls } from "./selectors";
 
@@ -49,21 +50,28 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
       await this.performSearch(page, criteria.role);
 
       // The results page renders client-side, so submitting the search
-      // doesn't guarantee results (or a no-results message) are visible
-      // yet. Wait for whichever shows up first before deciding anything.
-      await Promise.race([
-        page.locator(AppleSelectors.search.resultLinks).first().waitFor({ state: "attached", timeout: 15_000 }),
-        page.locator(AppleSelectors.search.noResults).first().waitFor({ state: "visible", timeout: 15_000 }),
-      ]).catch(() => {
-        this.logger.warn(
-          "Neither job results nor a no-results message appeared within 15s. The selectors in " +
-            "scrapers/apple/selectors.ts likely need updating for the current site markup."
-        );
-      });
+      // doesn't guarantee results are visible yet. Wait for at least one
+      // job link to attach before deciding anything.
+      await page
+        .locator(AppleSelectors.search.resultLinks)
+        .first()
+        .waitFor({ state: "attached", timeout: 15_000 })
+        .catch(() => {
+          // Might genuinely be zero results, or the page just hasn't
+          // rendered yet — the count check right below tells us which.
+        });
 
-      const noResults = await page.locator(AppleSelectors.search.noResults).count();
-      if (noResults > 0) {
-        this.logger.info(`No results for "${criteria.role}".`);
+      const resultCount = await page.locator(AppleSelectors.search.resultLinks).count();
+      if (resultCount === 0) {
+        const noResultsMessageShown = (await page.locator(AppleSelectors.search.noResults).count()) > 0;
+        this.logger.info(
+          `No job links found for "${criteria.role}".` +
+            (noResultsMessageShown
+              ? ""
+              : " No explicit no-results message was found either — if jobs are visibly showing " +
+                "in the browser, search.resultLinks in scrapers/apple/selectors.ts needs updating " +
+                "for the current site markup.")
+        );
         return [];
       }
 
@@ -96,8 +104,7 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
       });
 
       const title = (await this.safeText(page, AppleSelectors.detail.title)) ?? summary.title;
-      const location =
-        (await this.extractLocation(page)) ?? summary.location ?? "Not specified";
+      const location = (await this.extractLocation(page)) ?? summary.location ?? UNKNOWN_LOCATION;
       const team = await this.extractTeam(page);
       const description = (await this.safeText(page, AppleSelectors.detail.description)) ?? "";
       const postedDate = await this.extractPostedDate(page);
@@ -230,11 +237,27 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
     return false;
   }
 
+  /**
+   * Handles the two real location layouts on Apple's detail page: a
+   * `<select>` dropdown listing every office for roles open in multiple
+   * locations, or a single `<label>` for roles open in just one.
+   */
   private async extractLocation(page: Page): Promise<string | undefined> {
-    return (
-      (await this.safeText(page, AppleSelectors.detail.location)) ??
-      (await this.safeText(page, AppleSelectors.detail.locationFallback))
-    );
+    const options = page.locator(AppleSelectors.detail.location.multiOptions);
+    const optionCount = await options.count();
+
+    if (optionCount > 0) {
+      const labels: string[] = [];
+      for (let i = 0; i < optionCount; i++) {
+        const option = options.nth(i);
+        const label = (await option.getAttribute("label")) ?? (await option.innerText());
+        const trimmed = label?.trim();
+        if (trimmed) labels.push(trimmed);
+      }
+      if (labels.length > 0) return labels.join("; ");
+    }
+
+    return this.safeText(page, AppleSelectors.detail.location.singleLabel);
   }
 
   private async extractTeam(page: Page): Promise<string | undefined> {

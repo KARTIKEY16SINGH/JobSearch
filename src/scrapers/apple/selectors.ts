@@ -12,16 +12,15 @@
  * over auto-generated class names, which tend to be the first thing that
  * changes.
  *
- * NOTE: because this environment has no live browser access, most of
- * these selectors were derived from a static fetch of jobs.apple.com's
- * server-rendered markup rather than verified end-to-end with Playwright.
- * The search input under `search.searchInputCandidates` is an exception —
- * its primary selector (`input.search-typeahead-input`) was confirmed
- * directly against the real rendered DOM. Everything else (pagination,
- * detail-page fields) still hasn't been. Before relying on this scraper,
- * run it once with HEADLESS=false and `npx playwright codegen
- * https://jobs.apple.com/en-us/search` side by side to confirm/adjust
- * the rest.
+ * NOTE: because this environment has no live browser access, the search
+ * *results* page selectors (pagination, result links) were derived from a
+ * static fetch of jobs.apple.com's markup rather than verified end-to-end
+ * with Playwright. The search input (`search.searchInputCandidates`) and
+ * every selector under `detail` (location, team, minimum qualifications)
+ * ARE confirmed against real rendered DOM. If jobs are found but pagination
+ * or "no results" detection misbehaves, that's the part still to verify —
+ * run once with `headless: false` in `app.config.ts` and `npx playwright
+ * codegen https://jobs.apple.com/en-us/search` side by side.
  */
 
 export const AppleUrls = {
@@ -102,20 +101,39 @@ export const AppleSelectors = {
   },
 
   /**
-   * Job detail page (`/{locale}/details/{roleNumber}/{slug}`).
+   * Job detail page (`/{locale}/details/{roleNumber}/{slug}`). These are
+   * confirmed against the real DOM (unlike the search page selectors
+   * above, which still aren't).
    */
   detail: {
     title: "h1",
-    /** e.g. "Role Number:  200675127-3337" */
-    roleNumberLabel: 'text=/Role Number:/i',
-    /** e.g. "Weekly Hours: 40 Hours" */
-    weeklyHoursLabel: 'text=/Weekly Hours:/i',
-    /** Location is usually shown near a "Location" label or heading. */
-    location: 'text=/Location/i >> xpath=following-sibling::*[1]',
-    locationFallback: '[class*="location" i]',
-    /** Team / job family, e.g. "Software and Services". */
-    team: '[class*="team" i], [class*="jobcategory" i]',
+    /**
+     * Location renders two different ways depending on whether the role
+     * is open in one place or several:
+     * - Single location: `<label id="jobdetails-joblocation">City, State,
+     *   Country</label>`
+     * - Multiple locations: a `<select id="job-details-locationDropdown">`
+     *   whose `<option>` elements each have a `label` attribute with one
+     *   full location string, e.g. "Bengaluru, Karnataka, India".
+     * `extractLocation` in the scraper tries the multi-location dropdown
+     * first (joining every option), then falls back to the single label.
+     */
+    location: {
+      singleLabel: "#jobdetails-joblocation",
+      multiSelect: "#job-details-locationDropdown",
+      multiOptions: "#job-details-locationDropdown option",
+    },
+    /** Team / job family, e.g. "Corporate Functions". */
+    team: "#jobdetails-teamname",
     description: 'main, [role="main"], article',
+    /**
+     * The "Minimum Qualifications" bullet list — this is where years-of-
+     * experience requirements actually live, e.g. "6+ years of relevant
+     * experience in...". Used for `core/experience.ts` parsing so that
+     * regex isn't run over the whole page (unrelated numbers elsewhere on
+     * the page could otherwise produce false matches).
+     */
+    minimumQualifications: "#jobdetails-minimumqualifications",
     postedDate: 'text=/Posted:|Updated:/i',
     applyButton: 'a:has-text("Submit Resume"), a:has-text("Apply Now"), button:has-text("Submit Resume")',
   },

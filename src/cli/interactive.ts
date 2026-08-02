@@ -44,14 +44,22 @@ export async function runInteractivePrompts(
       "Max number of jobs to fully open and extract (blank = no limit)"
     );
 
+    const maxYearsExperience = await askNumber(
+      rl,
+      partial,
+      "maxYearsExperience",
+      "Only keep jobs requiring at most this many years of experience (blank = any)"
+    );
+
     const outputs = await askOutputs(rl, partial, ctx.sheetsConfigured);
 
     console.log("\nReady:");
-    console.log(`  Role:     ${role}`);
-    console.log(`  Site:     ${site}`);
-    console.log(`  Location: ${location ?? "(any)"}`);
-    console.log(`  Max jobs: ${maxResults ?? "(no limit)"}`);
-    console.log(`  Output:   ${outputs.join(", ")}\n`);
+    console.log(`  Role:       ${role}`);
+    console.log(`  Site:       ${site}`);
+    console.log(`  Location:   ${location ?? "(any)"}`);
+    console.log(`  Max jobs:   ${maxResults ?? "(no limit)"}`);
+    console.log(`  Experience: ${maxYearsExperience !== undefined ? `up to ${maxYearsExperience} years` : "(any)"}`);
+    console.log(`  Output:     ${outputs.join(", ")}\n`);
 
     const proceed = await askYesNo(rl, "Start the search?", true);
     if (!proceed) {
@@ -59,7 +67,7 @@ export async function runInteractivePrompts(
       process.exit(0);
     }
 
-    return { role, site, location, maxResults, outputs };
+    return { role, site, location, maxResults, maxYearsExperience, outputs };
   } finally {
     rl.close();
   }
@@ -98,7 +106,7 @@ async function askOptional(
 async function askNumber(
   rl: readline.Interface,
   partial: PartialCliArgs,
-  key: "maxResults",
+  key: "maxResults" | "maxYearsExperience",
   question: string
 ): Promise<number | undefined> {
   if (partial[key] !== undefined && !partial.interactive) return partial[key];
@@ -107,8 +115,8 @@ async function askNumber(
     const answer = (await rl.question(`${question}: `)).trim();
     if (answer.length === 0) return undefined;
     const parsed = Number(answer);
-    if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
-    console.log("Please enter a positive whole number, or leave blank.");
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed);
+    console.log("Please enter a whole number 0 or greater, or leave blank.");
   }
 }
 
