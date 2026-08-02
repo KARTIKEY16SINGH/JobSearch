@@ -13,14 +13,16 @@
  * changes.
  *
  * NOTE: because this environment has no live browser access, the search
- * *results* page selectors (pagination, result links) were derived from a
+ * results page's `resultLinks`/`noResults` selectors were derived from a
  * static fetch of jobs.apple.com's markup rather than verified end-to-end
- * with Playwright. The search input (`search.searchInputCandidates`) and
- * every selector under `detail` (location, team, minimum qualifications)
- * ARE confirmed against real rendered DOM. If jobs are found but pagination
- * or "no results" detection misbehaves, that's the part still to verify —
- * run once with `headless: false` in `app.config.ts` and `npx playwright
- * codegen https://jobs.apple.com/en-us/search` side by side.
+ * with Playwright. Everything else — the search input, pagination
+ * (`nextPageCandidates`/`totalPages`), and every selector under `detail`
+ * (location, team, minimum qualifications) — IS confirmed against real
+ * rendered DOM. If jobs are found but nothing gets extracted or "no
+ * results" misfires, `resultLinks`/`noResults` are the remaining
+ * suspects — run once with `headless: false` in `app.config.ts` and
+ * `npx playwright codegen https://jobs.apple.com/en-us/search` side by
+ * side to confirm/adjust.
  */
 
 export const AppleUrls = {
@@ -90,14 +92,25 @@ export const AppleSelectors = {
     resultLinks: 'a[href*="/details/"]',
     resultsCount: 'text=/[0-9,]+\\+?\\s+Result/i',
     noResults: "text=/no results|0 results/i",
-    /** Common "next page" affordances, tried in order until one matches. */
+    /**
+     * "Next page" control — confirmed from the real DOM: a
+     * `<nav class="rc-pagination">` containing a page-number input and
+     * prev/next buttons. The real button's `aria-label` is "Next Page",
+     * NOT "Next" — an earlier version of this selector guessed "Next"
+     * (an exact-attribute match), which silently never matched and made
+     * every search stop after page 1. `button[aria-label="Next Page"]` is
+     * the confirmed primary selector; the rest are defensive fallbacks in
+     * case of a future redesign.
+     */
     nextPageCandidates: [
+      'button[aria-label="Next Page"]',
+      'button[data-analytics-pagination="next"]',
+      "nav.rc-pagination button.icon-chevronend",
       'a[aria-label="Next"]',
       'button[aria-label="Next"]',
-      'a:has-text("Next")',
-      'button:has-text("Show More")',
-      'button:has-text("Load More")',
     ],
+    /** Total page count, e.g. the "2" in "Page [1] Of [2]" — confirmed from real DOM. Used only for a friendlier progress log. */
+    totalPages: '[data-autom="paginationTotalPages"]',
   },
 
   /**

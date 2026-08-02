@@ -69,8 +69,14 @@ export const appConfig = {
     },
 
     gemini: {
-      /** Override if you'd rather use a different Gemini model. */
-      model: "gemini-2.5-flash-lite",
+      /**
+       * Override if you'd rather use a different Gemini model. Google
+       * retires/restricts models for new API keys quite fast — if you get
+       * a 404 "no longer available to new users" error, check
+       * https://ai.google.dev/gemini-api/docs/models for the current
+       * lineup.
+       */
+      model: "gemini-3.1-flash-lite",
     },
   },
 };

@@ -4,9 +4,13 @@ import type { AiProvider } from "../ai-provider";
 export interface GeminiProviderOptions {
   apiKey: string;
   /**
-   * Defaults to gemini-2.5-flash-lite — Google's current model explicitly
-   * recommended for "high-volume classification, simple data extraction."
-   * Override in app.config.ts if you'd rather use a larger model.
+   * Defaults to gemini-3.1-flash-lite — Google's current model, explicitly
+   * documented as suited to "high-volume agentic workflows, simple data
+   * extraction." Gemini model availability moves fast: both 2.0-flash-lite
+   * and 2.5-flash-lite have already been restricted for new API keys as of
+   * this writing. If this default ever 404s with "no longer available to
+   * new users," check https://ai.google.dev/gemini-api/docs/models for
+   * the current lineup and update here (or override in app.config.ts).
    */
   model?: string;
 }
@@ -28,7 +32,7 @@ export class GeminiProvider implements AiProvider {
       throw new Error("GeminiProvider requires an API key (set it in src/config/secrets.local.ts).");
     }
     this.client = new GoogleGenAI({ apiKey: options.apiKey });
-    this.model = options.model ?? "gemini-2.5-flash-lite";
+    this.model = options.model ?? "gemini-3.1-flash-lite";
   }
 
   async complete(prompt: string): Promise<string> {

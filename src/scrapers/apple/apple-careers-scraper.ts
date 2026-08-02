@@ -80,7 +80,9 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
 
       for (let pageIndex = 0; pageIndex < this.maxPages; pageIndex++) {
         const newOnThisPage = await this.collectResultLinks(page, summaries, seenUrls);
-        this.logger.progress(`Page ${pageIndex + 1}: found ${newOnThisPage} new job(s) (${summaries.length} total so far).`);
+        const totalPagesText = await this.safeText(page, AppleSelectors.search.totalPages);
+        const pageLabel = totalPagesText ? `Page ${pageIndex + 1} of ${totalPagesText}` : `Page ${pageIndex + 1}`;
+        this.logger.progress(`${pageLabel}: found ${newOnThisPage} new job(s) (${summaries.length} total so far).`);
 
         const shouldTruncateHere = criteria.maxResults && !criteria.location;
         if (shouldTruncateHere && summaries.length >= criteria.maxResults!) {
@@ -223,20 +225,32 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
   private async goToNextPage(page: Page): Promise<boolean> {
     for (const candidate of AppleSelectors.search.nextPageCandidates) {
       const locator = page.locator(candidate).first();
-      if ((await locator.count()) === 0) continue;
+      const matchCount = await locator.count();
+      if (matchCount === 0) continue;
 
       const isDisabled = await locator.isDisabled().catch(() => false);
-      if (isDisabled) continue;
+      if (isDisabled) {
+        this.logger.progress(`  ↳ Pagination control "${candidate}" found but disabled — trying next candidate.`);
+        continue;
+      }
 
       try {
         await locator.click({ timeout: 5000 });
         await page.waitForLoadState("domcontentloaded");
+        this.logger.progress(`  ↳ Advanced to next page via "${candidate}".`);
         return true;
-      } catch {
-        // Try the next candidate selector.
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.progress(`  ↳ Pagination control "${candidate}" matched but click failed: ${message}`);
         continue;
       }
     }
+
+    this.logger.progress(
+      "  ↳ No pagination control matched any known selector — stopping after this page. " +
+        "If more results actually exist, search.nextPageCandidates in scrapers/apple/selectors.ts " +
+        "needs the real control's selector (never verified against live DOM — see selectors.ts header)."
+    );
     return false;
   }
 

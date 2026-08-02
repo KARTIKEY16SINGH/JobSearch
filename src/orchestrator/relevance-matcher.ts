@@ -67,10 +67,29 @@ export class AiRelevanceMatcher implements RelevanceMatcher {
   async filterRelevant(role: string, jobs: JobListing[]): Promise<JobListing[]> {
     if (jobs.length === 0) return [];
 
+    const prompt = this.buildPrompt(role, jobs);
+    this.logger.progress(`  ↳ Sending ${jobs.length} candidate(s) to ${this.provider.name}:`);
+    this.logger.progress(this.indent(prompt));
+
+    let responseText: string;
     try {
-      const prompt = this.buildPrompt(role, jobs);
-      const responseText = await this.provider.complete(prompt);
+      responseText = await this.provider.complete(prompt);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.progress(`  ↳ ${this.provider.name} call FAILED: ${message}`);
+      this.logger.warn(
+        `AI relevance check (${this.provider.name}) failed, falling back to keyword matching: ${message}`
+      );
+      return this.fallback.filterRelevant(role, jobs);
+    }
+
+    this.logger.progress(`  ↳ Raw response from ${this.provider.name}:`);
+    this.logger.progress(this.indent(responseText));
+
+    try {
       const relevantIds = this.parseResponse(responseText);
+      this.logger.progress(`  ↳ Parsed relevant IDs: [${relevantIds.join(", ")}]`);
+
       const relevantSet = new Set(relevantIds);
       const filtered = jobs.filter((job) => relevantSet.has(job.id));
 
@@ -78,6 +97,9 @@ export class AiRelevanceMatcher implements RelevanceMatcher {
       // likely a format mismatch than every candidate being irrelevant —
       // fall back rather than silently return zero results.
       if (filtered.length === 0) {
+        this.logger.progress(
+          `  ↳ Matched 0 of ${jobs.length} candidates — treating as a format issue, not a real result.`
+        );
         this.logger.warn(
           `AI relevance check (${this.provider.name}) matched 0 of ${jobs.length} candidates — that's ` +
             "more likely a response-format issue than a real result. Falling back to keyword matching."
@@ -85,15 +107,26 @@ export class AiRelevanceMatcher implements RelevanceMatcher {
         return this.fallback.filterRelevant(role, jobs);
       }
 
-      this.logger.debug(`AI relevance check (${this.provider.name}): kept ${filtered.length}/${jobs.length}.`);
+      this.logger.progress(`  ↳ Kept ${filtered.length}/${jobs.length}: ${filtered.map((j) => j.title).join("; ")}`);
       return filtered;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.logger.progress(`  ↳ Couldn't parse that response as JSON: ${message}`);
       this.logger.warn(
         `AI relevance check (${this.provider.name}) failed, falling back to keyword matching: ${message}`
       );
       return this.fallback.filterRelevant(role, jobs);
     }
+  }
+
+  /** Indents a multi-line block for readability under a progress line, and caps it so a huge response doesn't flood the terminal. */
+  private indent(text: string): string {
+    const maxChars = 4000;
+    const truncated = text.length > maxChars ? `${text.slice(0, maxChars)}\n... (truncated)` : text;
+    return truncated
+      .split("\n")
+      .map((line) => `      ${line}`)
+      .join("\n");
   }
 
   private buildPrompt(role: string, jobs: JobListing[]): string {
