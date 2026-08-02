@@ -40,14 +40,17 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
     const seenUrls = new Set<string>();
 
     try {
-      this.logger.info(`Searching Apple Careers for "${criteria.role}" via the on-page search box.`);
+      this.logger.progress(`Opening Apple Careers search page (${this.searchPageUrl})...`);
 
       await withRetry(() => page.goto(this.searchPageUrl, { waitUntil: "domcontentloaded" }), {
         logger: this.logger,
         label: "apple.search.goto",
       });
 
+      this.logger.progress(`Typing "${criteria.role}" into the search box...`);
       await this.performSearch(page, criteria.role);
+
+      this.logger.progress("Search submitted, waiting for results to load...");
 
       // The results page renders client-side, so submitting the search
       // doesn't guarantee results are visible yet. Wait for at least one
@@ -64,7 +67,7 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
       const resultCount = await page.locator(AppleSelectors.search.resultLinks).count();
       if (resultCount === 0) {
         const noResultsMessageShown = (await page.locator(AppleSelectors.search.noResults).count()) > 0;
-        this.logger.info(
+        this.logger.progress(
           `No job links found for "${criteria.role}".` +
             (noResultsMessageShown
               ? ""
@@ -77,7 +80,7 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
 
       for (let pageIndex = 0; pageIndex < this.maxPages; pageIndex++) {
         const newOnThisPage = await this.collectResultLinks(page, summaries, seenUrls);
-        this.logger.debug(`Page ${pageIndex + 1}: collected ${newOnThisPage} new job(s).`);
+        this.logger.progress(`Page ${pageIndex + 1}: found ${newOnThisPage} new job(s) (${summaries.length} total so far).`);
 
         const shouldTruncateHere = criteria.maxResults && !criteria.location;
         if (shouldTruncateHere && summaries.length >= criteria.maxResults!) {

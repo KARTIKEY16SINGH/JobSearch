@@ -43,6 +43,27 @@ export class Logger {
     this.log("error", message, meta);
   }
 
+  /**
+   * Prints a plain section banner — no timestamp/level/scope prefix.
+   * Use this to mark the start of a distinct phase (searching,
+   * extracting, filtering, writing...) so someone watching the terminal
+   * can tell at a glance which step is running, instead of parsing
+   * tagged log lines.
+   */
+  banner(title: string): void {
+    const line = "─".repeat(Math.max(24, title.length + 4));
+    console.log(`\n${line}\n  ${title}\n${line}`);
+  }
+
+  /**
+   * Prints a plain progress line — no timestamp/level/scope prefix.
+   * Use this for per-item feedback within a step (e.g. "[3/25]
+   * Extracting: <title>") so long-running loops aren't silent.
+   */
+  progress(message: string): void {
+    console.log(message);
+  }
+
   private log(level: LogLevel, message: string, meta?: unknown): void {
     if (LEVEL_ORDER[level] < LEVEL_ORDER[this.minLevel]) {
       return;

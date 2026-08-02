@@ -19,6 +19,11 @@ import type { RelevanceMatcher } from "./relevance-matcher";
  * lets `RelevanceMatcher` batch every candidate into a single AI call
  * instead of one call per job — filtering needs the whole candidate set
  * up front to do that.
+ *
+ * Each phase prints a clear banner + live per-item progress via
+ * `logger.banner()`/`logger.progress()` (plain, untagged output) — a run
+ * over 20+ jobs can take a minute or more with real page loads, and a
+ * silent terminal during that time looks indistinguishable from a hang.
  */
 export class JobSearchRunner {
   private readonly registry: ScraperRegistry;
@@ -40,39 +45,47 @@ export class JobSearchRunner {
 
   async run(context: BrowserContext, siteName: string, criteria: SearchCriteria): Promise<ScrapeResult> {
     const startedAt = new Date().toISOString();
+    const runStart = Date.now();
     const scraper = this.registry.get(siteName);
     const errors: ScrapeError[] = [];
 
-    this.logger.info(`Starting search on "${siteName}" for role "${criteria.role}".`);
+    // --- Step 1: search --------------------------------------------------
+    this.logger.banner(`STEP 1: Searching ${siteName} for "${criteria.role}"`);
     const summaries = await scraper.search(context, criteria);
-    this.logger.info(`Found ${summaries.length} candidate job(s). Extracting details...`);
+    this.logger.progress(`Found ${summaries.length} candidate job(s).`);
 
-    // Phase 1: extract every candidate's full details.
+    // --- Step 2: extract every candidate's full details -------------------
+    this.logger.banner(`STEP 2: Extracting job details (${summaries.length} candidate(s))`);
     const extracted: JobListing[] = [];
     for (const [index, summary] of summaries.entries()) {
+      this.logger.progress(`[${index + 1}/${summaries.length}] Extracting: ${summary.title}`);
       try {
         const job = await scraper.extractJobDetails(context, summary);
         extracted.push(job);
-        this.logger.debug(`(${index + 1}/${summaries.length}) Extracted: ${job.title}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed to extract job "${summary.title}" (${summary.url}): ${message}`);
+        this.logger.progress(`  → failed: ${message}`);
         errors.push({ message, context: summary.url, timestamp: new Date().toISOString() });
       }
     }
+    this.logger.progress(
+      `Extraction complete — ${extracted.length}/${summaries.length} succeeded, ${errors.length} failed.`
+    );
 
-    // Phase 2: relevance filtering (batched — one call for AI matchers).
-    this.logger.info(`Checking relevance of ${extracted.length} extracted job(s) using "${this.relevanceMatcher.name}"...`);
+    // --- Step 3: relevance filtering (batched — one call for AI matchers) -
+    this.logger.banner(`STEP 3: Checking relevance (matcher: ${this.relevanceMatcher.name})`);
+    this.logger.progress(`Checking ${extracted.length} job(s) against "${criteria.role}"...`);
     const relevant = await this.relevanceMatcher.filterRelevant(criteria.role, extracted);
     const skippedByRelevance = extracted.length - relevant.length;
-    if (skippedByRelevance > 0) {
-      this.logger.info(
-        `Filtered out ${skippedByRelevance} job(s) that didn't appear related to "${criteria.role}" ` +
-          `(the site's own search included them anyway).`
-      );
-    }
+    this.logger.progress(`Relevance check complete — kept ${relevant.length}, filtered out ${skippedByRelevance}.`);
 
-    // Phase 3: location + experience filtering, then truncate to maxResults.
+    // --- Step 4: location + experience filtering, then truncate ----------
+    this.logger.banner("STEP 4: Applying location & experience filters");
+    this.logger.progress(`Location filter: ${criteria.location ?? "(none)"}`);
+    this.logger.progress(
+      `Experience filter: ${criteria.maxYearsExperience !== undefined ? `≤ ${criteria.maxYearsExperience} years` : "(none)"}`
+    );
+
     const locationFilter = criteria.location?.trim().toLowerCase();
     const jobs: JobListing[] = [];
     let skippedByLocation = 0;
@@ -82,7 +95,7 @@ export class JobSearchRunner {
 
     for (const job of relevant) {
       if (criteria.maxResults && jobs.length >= criteria.maxResults) {
-        this.logger.debug(`Reached maxResults (${criteria.maxResults}); stopping.`);
+        this.logger.progress(`Reached the ${criteria.maxResults}-job limit; stopping here.`);
         break;
       }
 
@@ -93,9 +106,6 @@ export class JobSearchRunner {
       if (locationFilter && job.location !== UNKNOWN_LOCATION) {
         if (!job.location.toLowerCase().includes(locationFilter)) {
           skippedByLocation++;
-          this.logger.debug(
-            `Skipped "${job.title}" — location "${job.location}" doesn't match "${criteria.location}".`
-          );
           continue;
         }
       } else if (locationFilter && job.location === UNKNOWN_LOCATION) {
@@ -110,9 +120,6 @@ export class JobSearchRunner {
           unknownExperienceCount++;
         } else if (minYears > criteria.maxYearsExperience) {
           skippedByExperience++;
-          this.logger.debug(
-            `Skipped "${job.title}" — requires ${minYears}+ years, above the ${criteria.maxYearsExperience} cap.`
-          );
           continue;
         }
       }
@@ -120,8 +127,9 @@ export class JobSearchRunner {
       jobs.push(job);
     }
 
+    this.logger.progress(`Kept ${jobs.length} job(s) after filtering.`);
     if (locationFilter && skippedByLocation > 0) {
-      this.logger.info(`Filtered out ${skippedByLocation} job(s) not matching location "${criteria.location}".`);
+      this.logger.progress(`  - ${skippedByLocation} skipped: location didn't match "${criteria.location}".`);
     }
     if (locationFilter && unknownLocationCount > 0) {
       this.logger.warn(
@@ -130,8 +138,8 @@ export class JobSearchRunner {
       );
     }
     if (criteria.maxYearsExperience !== undefined && skippedByExperience > 0) {
-      this.logger.info(
-        `Filtered out ${skippedByExperience} job(s) requiring more than ${criteria.maxYearsExperience} years of experience.`
+      this.logger.progress(
+        `  - ${skippedByExperience} skipped: required more than ${criteria.maxYearsExperience} years of experience.`
       );
     }
     if (criteria.maxYearsExperience !== undefined && unknownExperienceCount > 0) {
@@ -141,16 +149,17 @@ export class JobSearchRunner {
       );
     }
 
-    const result: ScrapeResult = {
-      siteName,
-      criteria,
-      jobs,
-      errors,
-      startedAt,
-      finishedAt: new Date().toISOString(),
-    };
+    // --- Step 5: write output ---------------------------------------------
+    this.logger.banner(`STEP 5: Writing output (${this.writers.map((w) => w.name).join(", ")})`);
+
+    const finishedAt = new Date().toISOString();
+    const result: ScrapeResult = { siteName, criteria, jobs, errors, startedAt, finishedAt };
 
     await this.dispatchToWriters(jobs, result);
+
+    const elapsedSeconds = ((Date.now() - runStart) / 1000).toFixed(1);
+    this.logger.banner(`DONE — ${jobs.length} job(s) in ${elapsedSeconds}s (${errors.length} error(s))`);
+
     return result;
   }
 
@@ -162,8 +171,10 @@ export class JobSearchRunner {
     };
 
     for (const writer of this.writers) {
+      this.logger.progress(`Writing via "${writer.name}"...`);
       try {
         await writer.write(jobs, meta);
+        this.logger.progress(`  → done.`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.error(`Output writer "${writer.name}" failed: ${message}`);
