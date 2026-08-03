@@ -6,10 +6,10 @@
  *
  * This file is gitignored — never commit real keys here.
  */
-export const secrets = {
-  /** From https://platform.openai.com/api-keys — only needed if ai.provider is "openai". */
-  openaiApiKey: "",
+export const glocalAiConstants = {
+	/** From https://platform.openai.com/api-keys — only needed if ai.provider is "openai". */
+	openaiApiKey: "",
 
-  /** From https://aistudio.google.com/apikey — only needed if ai.provider is "gemini". */
-  geminiApiKey: "",
+	/** From https://aistudio.google.com/apikey — only needed if ai.provider is "gemini". */
+	geminiApiKey: "",
 };
