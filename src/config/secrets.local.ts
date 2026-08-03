@@ -11,5 +11,5 @@ export const secrets = {
   openaiApiKey: "",
 
   /** From https://aistudio.google.com/apikey — only needed if ai.provider is "gemini". */
-  geminiApiKey: "AQ.Ab8RN6LJ9nhq80T5Zjfb5vRbhjPiQI-w6aEerBxEWMR85HD38w",
+  geminiApiKey: "",
 };
