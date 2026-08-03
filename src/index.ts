@@ -11,6 +11,7 @@ import { JobSearchRunner } from "./orchestrator/job-search-runner";
 import { AiRelevanceMatcher, KeywordRelevanceMatcher } from "./orchestrator/relevance-matcher";
 import type { RelevanceMatcher } from "./orchestrator/relevance-matcher";
 import { ConsoleWriter } from "./output/console-writer";
+import { CsvWriter } from "./output/csv-writer";
 import { GoogleSheetsWriter } from "./output/google-sheets-writer";
 import type { OutputWriter } from "./output/output-writer";
 import { AppleCareersScraper } from "./scrapers/apple/apple-careers-scraper";
@@ -109,9 +110,11 @@ async function main(): Promise<void> {
     // --- Output writers ----------------------------------------------------
     const writers: OutputWriter[] = [];
     for (const output of args.outputs) {
-      if (output === "console") {
-        writers.push(new ConsoleWriter());
-      } else if (output === "sheets") {
+	      if (output === "console") {
+	        writers.push(new ConsoleWriter());
+	      } else if (output === "csv") {
+	        writers.push(new CsvWriter(config.csv.filePath));
+	      } else if (output === "sheets") {
         if (!config.googleSheets.enabled) {
           logger.error("Requested --output sheets but googleSheets.sheetUrl is empty in src/config/app.config.ts.");
           process.exitCode = 1;

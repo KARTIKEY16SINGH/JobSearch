@@ -210,10 +210,18 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
       if (!href) continue;
 
       const absoluteUrl = this.toAbsoluteUrl(href.split("?")[0] ?? href);
+      if (!this.isJobDetailUrl(absoluteUrl)) {
+        this.logger.warn(`Ignoring non-job link returned by the results selector: ${absoluteUrl}`);
+        continue;
+      }
       if (seenUrls.has(absoluteUrl)) continue;
       seenUrls.add(absoluteUrl);
 
       const title = (await link.innerText()).trim();
+      if (!title) {
+        this.logger.warn(`Ignoring a job detail link with no title: ${absoluteUrl}`);
+        continue;
+      }
       const id = this.extractRoleNumberFromUrl(absoluteUrl) ?? absoluteUrl;
 
       summaries.push({ id, title, url: absoluteUrl });
@@ -221,6 +229,20 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
     }
 
     return added;
+  }
+
+  /**
+   * Apple role detail pages use `/{locale}/details/{role-number}/{slug}`.
+   * Keep this validation separate from the CSS selector: a future page
+   * redesign can make a selector broader again, but it must never turn an
+   * informational link into a job to open and extract.
+   */
+  private isJobDetailUrl(url: string): boolean {
+    try {
+      return /^\/[a-z]{2}-[a-z]{2}\/details\/\d+(?:-\d+)?\/[^/?#]+$/i.test(new URL(url).pathname);
+    } catch {
+      return false;
+    }
   }
 
   /** Tries known "next page" affordances; returns false when none advance the page. */

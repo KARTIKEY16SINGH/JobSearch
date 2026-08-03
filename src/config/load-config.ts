@@ -9,6 +9,10 @@ export interface GoogleSheetsConfig {
 	startCell: string;
 }
 
+export interface CsvConfig {
+	filePath: string;
+}
+
 export type AiProviderName = "none" | "openai" | "gemini";
 
 export interface AiConfig {
@@ -25,6 +29,7 @@ export interface AppConfig {
 	defaultTimeoutMs: number;
 	appleLocale: string;
 	googleSheets: GoogleSheetsConfig;
+	csv: CsvConfig;
 	ai: AiConfig;
 }
 
@@ -49,6 +54,9 @@ export function loadConfig(): AppConfig {
 			sheetUrl,
 			sheetTab: appConfig.googleSheets.sheetTab.trim() || null,
 			startCell: appConfig.googleSheets.startCell.trim() || "A1",
+		},
+		csv: {
+			filePath: path.resolve(process.cwd(), appConfig.csv.filePath),
 		},
 		ai: {
 			provider: appConfig.ai.provider as AiProviderName,

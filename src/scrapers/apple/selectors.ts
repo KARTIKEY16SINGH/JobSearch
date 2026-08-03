@@ -89,7 +89,17 @@ export const AppleSelectors = {
       'button:has-text("Search")',
       'button[type="submit"]',
     ],
-    resultLinks: 'a[href*="/details/"]',
+    /**
+     * A real search-result row is an accordion button containing a
+     * `.job-title-link > h3 > a`. Restricting to this structure avoids
+     * unrelated page links such as "Where we're hiring" which can also
+     * include `/details/` in their URL.
+     *
+     * Example (observed 2026-08):
+     * `<div data-core-accordion-button><div class="job-title-link"><h3>
+     *   <a href="/en-in/details/200670663-1281/senior-finance-analyst-sales">`
+     */
+    resultLinks: '[data-core-accordion-button] .job-title-link > h3 > a[href*="/details/"]',
     resultsCount: 'text=/[0-9,]+\\+?\\s+Result/i',
     noResults: "text=/no results|0 results/i",
     /**

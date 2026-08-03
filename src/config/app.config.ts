@@ -51,6 +51,14 @@ export const appConfig = {
     startCell: "A1",
   },
 
+  csv: {
+    /**
+     * CSV destination for shortlisted jobs. Each run appends new rows and
+     * never rewrites an existing file.
+     */
+    filePath: "./output/shortlisted-jobs.csv",
+  },
+
   ai: {
     /**
      * Which relevance-checking strategy to use:

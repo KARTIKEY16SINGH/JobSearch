@@ -87,11 +87,14 @@ export const appConfig = {
   apple: {
     locale: "en-in", // "en-us", "en-gb", etc.
   },
-  googleSheets: {
+    googleSheets: {
     sheetUrl: "https://docs.google.com/spreadsheets/d/<your-sheet-id>/edit",
     sheetTab: "Jobs",
-    startCell: "A1",
-  },
+      startCell: "A1",
+    },
+    csv: {
+      filePath: "./output/shortlisted-jobs.csv",
+    },
 };
 ```
 
@@ -172,6 +175,8 @@ npm run dev -- --role "Sales Manager"
 npm run dev -- --role "Sales Manager" --max 10
 npm run dev -- --role "Sales Manager" --output sheets
 npm run dev -- --role "Sales Manager" --output console,sheets
+npm run dev -- --role "Sales Manager" --output csv
+npm run dev -- --role "Sales Manager" --output console,csv
 npm run dev -- --role "Sales Manager" --location "California"
 npm run dev -- --role "Sales Manager" --max-experience 7
 ```
@@ -187,6 +192,13 @@ Or build and run compiled JS:
 npm run build
 npm start -- --role "Sales Manager" --output sheets
 ```
+
+### CSV output
+
+Use `--output csv` to save shortlisted jobs locally without opening Google
+Sheets. The default destination is `output/shortlisted-jobs.csv`; change
+`csv.filePath` in `src/config/app.config.ts` to use another file. Repeated
+runs append new jobs and leave all existing rows unchanged.
 
 ## Known limitation: Apple's selectors need live verification
 

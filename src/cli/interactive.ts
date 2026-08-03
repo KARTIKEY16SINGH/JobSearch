@@ -167,14 +167,11 @@ async function askOutputs(
   }
 
   const options = sheetsConfigured
-    ? ["console", "sheets", "console,sheets"]
-    : ["console"];
+    ? ["console", "csv", "sheets", "console,csv", "console,sheets", "console,csv,sheets"]
+    : ["console", "csv", "console,csv"];
 
   if (!sheetsConfigured) {
-    console.log(
-      "(Google Sheets output not offered: set googleSheets.sheetUrl in src/config/app.config.ts to enable it.)"
-    );
-    return ["console"];
+    console.log("(Google Sheets output not offered: set googleSheets.sheetUrl in src/config/app.config.ts to enable it.)");
   }
 
   console.log("Where should results go?");

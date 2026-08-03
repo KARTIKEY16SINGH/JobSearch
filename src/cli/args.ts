@@ -34,7 +34,7 @@ Options:
   --max <n>                 Maximum number of jobs to fully extract
   --max-experience <n>       Only keep jobs requiring at most n years of experience
   --criteria <text>          Extra free-text filter criteria — only honored with AI matching on
-  --output <list>            Comma-separated writers to use: console,sheets (default: console)
+  --output <list>            Comma-separated writers to use: console,csv,sheets (default: console)
   --interactive               Prompt for every option even if flags were also given
   --help                       Show this message
 
