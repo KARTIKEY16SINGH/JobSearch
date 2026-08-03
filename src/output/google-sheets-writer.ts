@@ -1,30 +1,44 @@
+import * as readline from "node:readline/promises";
 import type { BrowserContext, Page } from "playwright";
 import type { GoogleSheetsConfig } from "../config/load-config";
+import { toCompanyName } from "../core/format";
 import { Logger } from "../core/logger";
 import type { JobListing, WriteMeta } from "../core/types";
 import type { OutputWriter } from "./output-writer";
 
+/**
+ * Column order matches ConsoleWriter's per-job breakdown exactly, so the
+ * terminal preview and the sheet always show the same thing. S.No. isn't
+ * in this list — it's the row index, added separately in `buildRows`.
+ */
 const COLUMNS: Array<{ header: string; value: (job: JobListing) => string }> = [
-  { header: "Job ID", value: (j) => j.id },
-  { header: "Title", value: (j) => j.title },
-  { header: "Location", value: (j) => j.location },
-  { header: "Team", value: (j) => j.team ?? "" },
-  { header: "Posted Date", value: (j) => j.postedDate ?? "" },
-  { header: "Description", value: (j) => j.description },
-  { header: "Apply URL", value: (j) => j.applyUrl },
-  { header: "Source URL", value: (j) => j.sourceUrl },
-  { header: "Source Site", value: (j) => j.sourceSite },
-  { header: "Scraped At", value: (j) => j.scrapedAt },
+  { header: "Job Id", value: (j) => j.id },
+  { header: "Company", value: (j) => toCompanyName(j.sourceSite) },
+  { header: "Role Type", value: (j) => j.team ?? "Not specified" },
+  { header: "Opening Heading", value: (j) => j.title },
+  { header: "Location Available", value: (j) => j.location },
+  { header: "Type", value: (j) => j.employmentType },
+  { header: "Job Description", value: (j) => j.description },
+  { header: "Job Link", value: (j) => j.sourceUrl },
 ];
 
 /**
  * Writes jobs into a Google Sheet by driving the real Sheets UI with
  * Playwright, reusing the same persistent `BrowserContext` the scraper
  * used — per the project requirement, this deliberately avoids the
- * Google Sheets API. Login is handled by the persistent profile: the
- * first time you run this with `headless: false` in `app.config.ts`,
- * sign into Google normally in the opened tab; the session cookie is
- * then reused on every subsequent run (see README for details).
+ * Google Sheets API. Login is handled by the persistent profile.
+ *
+ * Two distinct not-logged-in behaviors, based on `headless`:
+ * - **Headless**: fails immediately with a clear explanation — there's
+ *   no visible window for a human to log into, so waiting would just
+ *   hang forever for no reason. Tells you exactly what to change.
+ * - **Headed**: pauses and asks in the terminal — "log in in the window
+ *   that just opened, then press Enter here" — instead of failing
+ *   immediately, since a person genuinely can act on it right now.
+ *
+ * Either way, once logged in, the session is saved in the persistent
+ * profile (`userDataDir` in app.config.ts) and reused on every future
+ * run — headless or not — until it expires.
  *
  * Mechanism: select the target cell via Sheets' "Name box", write the
  * job data to the OS clipboard as tab-separated values, and paste —
@@ -35,14 +49,21 @@ export class GoogleSheetsWriter implements OutputWriter {
   readonly name = "google-sheets";
   private readonly context: BrowserContext;
   private readonly config: GoogleSheetsConfig;
+  private readonly headless: boolean;
   private readonly logger: Logger;
 
-  constructor(context: BrowserContext, config: GoogleSheetsConfig, logger: Logger = new Logger("google-sheets-writer")) {
+  constructor(
+    context: BrowserContext,
+    config: GoogleSheetsConfig,
+    headless: boolean,
+    logger: Logger = new Logger("google-sheets-writer")
+  ) {
     if (!config.sheetUrl) {
-      throw new Error("GoogleSheetsWriter requires GOOGLE_SHEET_URL to be set.");
+      throw new Error("GoogleSheetsWriter requires googleSheets.sheetUrl to be set in app.config.ts.");
     }
     this.context = context;
     this.config = config;
+    this.headless = headless;
     this.logger = logger;
   }
 
@@ -57,7 +78,7 @@ export class GoogleSheetsWriter implements OutputWriter {
       this.logger.info(`Opening spreadsheet: ${this.config.sheetUrl}`);
       await page.goto(this.config.sheetUrl, { waitUntil: "domcontentloaded" });
 
-      await this.assertLoggedIn(page);
+      await this.ensureLoggedIn(page);
 
       if (this.config.sheetTab) {
         await this.switchToTab(page, this.config.sheetTab);
@@ -74,23 +95,64 @@ export class GoogleSheetsWriter implements OutputWriter {
     }
   }
 
-  private async assertLoggedIn(page: Page): Promise<void> {
+  private async isLoggedOut(page: Page): Promise<boolean> {
     const onGoogleLogin = page.url().includes("accounts.google.com");
     const signInVisible = await page
       .getByRole("link", { name: /sign in/i })
       .first()
       .isVisible()
       .catch(() => false);
+    return onGoogleLogin || signInVisible;
+  }
 
-    if (onGoogleLogin || signInVisible) {
+  private async ensureLoggedIn(page: Page): Promise<void> {
+    if (!(await this.isLoggedOut(page))) {
+      await this.waitForSheetsToLoad(page);
+      return;
+    }
+
+    if (this.headless) {
       throw new Error(
-        "Google Sheets is not logged in on this browser profile. Set headless: false in " +
-          "src/config/app.config.ts, run the app once, sign into Google manually in the window " +
-          "that opens, then set headless back to whatever you like — the login is stored in " +
-          "the userDataDir folder from app.config.ts."
+        "Google Sheets is not logged in on this browser profile, and the browser is running " +
+          "headless (headless: true in app.config.ts) — there's no visible window for you to log " +
+          "in. Set headless: false in app.config.ts, run once, log in when the window opens, then " +
+          "switch back to headless: true for future runs — the session is saved in the userDataDir " +
+          "folder and reused automatically."
       );
     }
 
+    // Headed: give the person a real chance to log in right now instead
+    // of failing immediately.
+    this.logger.progress("");
+    this.logger.progress("──────────────────────────────────────────────────────────");
+    this.logger.progress("Google Sheets isn't logged in on this browser profile.");
+    this.logger.progress("A browser window should be open on the sign-in page — log in there now.");
+    this.logger.progress("──────────────────────────────────────────────────────────");
+
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      await rl.question("Press Enter here once you're logged in and can see the spreadsheet... ");
+    } finally {
+      rl.close();
+    }
+
+    // Login may have redirected away from the sheet — go back to it.
+    if (page.url().includes("accounts.google.com")) {
+      await page.goto(this.config.sheetUrl, { waitUntil: "domcontentloaded" });
+    }
+
+    if (await this.isLoggedOut(page)) {
+      throw new Error(
+        "Still not logged in to Google after waiting. Run the app again once you've finished " +
+          "signing in — the session will be reused from then on."
+      );
+    }
+
+    this.logger.progress("Logged in — continuing.\n");
+    await this.waitForSheetsToLoad(page);
+  }
+
+  private async waitForSheetsToLoad(page: Page): Promise<void> {
     // Give the Sheets editor UI a moment to finish loading its canvas.
     await page.waitForSelector('[aria-label="Name box"], #t-name-box', { timeout: 20_000 });
   }
@@ -105,8 +167,11 @@ export class GoogleSheetsWriter implements OutputWriter {
   }
 
   private buildRows(jobs: JobListing[]): string[][] {
-    const header = COLUMNS.map((c) => c.header);
-    const dataRows = jobs.map((job) => COLUMNS.map((c) => this.sanitizeCell(c.value(job))));
+    const header = ["S.No.", ...COLUMNS.map((c) => c.header)];
+    const dataRows = jobs.map((job, index) => [
+      String(index + 1),
+      ...COLUMNS.map((c) => this.sanitizeCell(c.value(job))),
+    ]);
     return [header, ...dataRows];
   }
 

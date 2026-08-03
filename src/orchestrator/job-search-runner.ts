@@ -74,8 +74,15 @@ export class JobSearchRunner {
 
     // --- Step 3: relevance filtering (batched — one call for AI matchers) -
     this.logger.banner(`STEP 3: Checking relevance (matcher: ${this.relevanceMatcher.name})`);
+    if (this.relevanceMatcher.name === "keyword" && criteria.additionalCriteria) {
+      this.logger.warn(
+        `"${criteria.additionalCriteria}" was supplied as extra filter criteria, but the keyword matcher ` +
+          `can't interpret free text — it'll be ignored this run. Set ai.provider in app.config.ts to have ` +
+          `an AI matcher actually apply it.`
+      );
+    }
     this.logger.progress(`Checking ${extracted.length} job(s) against "${criteria.role}"...`);
-    const relevant = await this.relevanceMatcher.filterRelevant(criteria.role, extracted);
+    const relevant = await this.relevanceMatcher.filterRelevant(criteria, extracted);
     const skippedByRelevance = extracted.length - relevant.length;
     this.logger.progress(`Relevance check complete — kept ${relevant.length}, filtered out ${skippedByRelevance}.`);
 
@@ -85,6 +92,14 @@ export class JobSearchRunner {
     this.logger.progress(
       `Experience filter: ${criteria.maxYearsExperience !== undefined ? `≤ ${criteria.maxYearsExperience} years` : "(none)"}`
     );
+    if (criteria.maxYearsExperience !== undefined) {
+      this.logger.progress(
+        `  (This is a deterministic backstop applied to every job regardless of matcher — it looks for an ` +
+          `explicit "N years" mention in the description via regex. It fails OPEN: a job with no explicit ` +
+          `number stated is kept, not dropped, since we can't assume it's over the cap. If the AI matcher is ` +
+          `active, it already weighed the experience cap using title/seniority cues too — see STEP 3 above.)`
+      );
+    }
 
     const locationFilter = criteria.location?.trim().toLowerCase();
     const jobs: JobListing[] = [];
@@ -106,10 +121,12 @@ export class JobSearchRunner {
       if (locationFilter && job.location !== UNKNOWN_LOCATION) {
         if (!job.location.toLowerCase().includes(locationFilter)) {
           skippedByLocation++;
+          this.logger.progress(`  ↳ "${job.title}": location "${job.location}" — FILTERED (doesn't match "${criteria.location}").`);
           continue;
         }
       } else if (locationFilter && job.location === UNKNOWN_LOCATION) {
         unknownLocationCount++;
+        this.logger.progress(`  ↳ "${job.title}": location unknown — kept (couldn't verify).`);
       }
 
       // Same fail-open logic for experience: only filter out a job when
@@ -118,16 +135,22 @@ export class JobSearchRunner {
         const minYears = extractMinYearsExperience(job.description);
         if (minYears === undefined) {
           unknownExperienceCount++;
+          this.logger.progress(`  ↳ "${job.title}": experience not stated in description — kept (couldn't verify).`);
         } else if (minYears > criteria.maxYearsExperience) {
           skippedByExperience++;
+          this.logger.progress(
+            `  ↳ "${job.title}": requires ${minYears}+ years — FILTERED (exceeds ${criteria.maxYearsExperience}-year cap).`
+          );
           continue;
+        } else {
+          this.logger.progress(`  ↳ "${job.title}": requires ${minYears}+ years — OK (within ${criteria.maxYearsExperience}-year cap).`);
         }
       }
 
       jobs.push(job);
     }
 
-    this.logger.progress(`Kept ${jobs.length} job(s) after filtering.`);
+    this.logger.progress(`\nKept ${jobs.length} job(s) after filtering.`);
     if (locationFilter && skippedByLocation > 0) {
       this.logger.progress(`  - ${skippedByLocation} skipped: location didn't match "${criteria.location}".`);
     }
@@ -145,7 +168,9 @@ export class JobSearchRunner {
     if (criteria.maxYearsExperience !== undefined && unknownExperienceCount > 0) {
       this.logger.warn(
         `${unknownExperienceCount} job(s) had no detectable experience requirement and were kept rather ` +
-          `than filtered — experience parsing is best-effort text matching, not guaranteed.`
+          `than filtered — experience parsing is best-effort text matching, not guaranteed. If the AI matcher ` +
+          `is active, that step already applied its own judgment to these; if using the keyword matcher, ` +
+          `these numbers are entirely unverified for experience.`
       );
     }
 

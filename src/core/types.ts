@@ -8,14 +8,16 @@
  */
 
 /**
- * Sentinel used by scrapers when a job's location genuinely couldn't be
- * extracted from the page. Kept as a shared constant (rather than each
- * scraper inventing its own string) so the location filter in
- * `JobSearchRunner` can tell "location is known and doesn't match" apart
- * from "location is unknown" — those must be handled differently: an
- * unknown location should never be silently treated as a non-match.
+ * Sentinel used by scrapers when a field genuinely couldn't be extracted
+ * from the page. Kept as a shared constant (rather than each scraper
+ * inventing its own string) so filters can tell "this value is known and
+ * doesn't match" apart from "this value is unknown" — those must be
+ * handled differently: an unknown value should never be silently treated
+ * as a non-match.
  */
-export const UNKNOWN_LOCATION = "Not specified";
+export const NOT_SPECIFIED = "Not specified";
+/** @deprecated Use NOT_SPECIFIED — kept as an alias so existing imports don't break. */
+export const UNKNOWN_LOCATION = NOT_SPECIFIED;
 
 /** Criteria supplied by the user (or, later, a saved search profile). */
 export interface SearchCriteria {
@@ -33,6 +35,15 @@ export interface SearchCriteria {
   keywords?: string[];
   /** Hard cap on the number of jobs to fully extract. Useful for testing. */
   maxResults?: number;
+  /**
+   * Free-text extra filtering criteria the user wants applied, e.g. "must
+   * offer hybrid or remote work", "prefer individual-contributor roles,
+   * not people management". Only honored when AI-backed relevance
+   * matching is active (`ai.provider` set in app.config.ts) — a plain
+   * keyword matcher can't reasonably interpret free text. See
+   * `orchestrator/relevance-matcher.ts`.
+   */
+  additionalCriteria?: string;
 }
 
 /**
@@ -57,6 +68,12 @@ export interface JobListing {
   title: string;
   location: string;
   team?: string;
+  /**
+   * Work arrangement / employment type, e.g. "Full-time", "Part-time",
+   * "Hybrid", "Remote" — whatever the site actually states. Defaults to
+   * `NOT_SPECIFIED` when a scraper can't find this on the page.
+   */
+  employmentType: string;
   description: string;
   /** Posted/updated date exactly as shown on the site, if available. */
   postedDate?: string;

@@ -85,6 +85,7 @@ async function main(): Promise<void> {
     ? await runInteractivePrompts(partial, {
         availableSites: registry.listNames(),
         sheetsConfigured: config.googleSheets.enabled,
+        aiEnabled: config.ai.provider !== "none",
       })
     : {
         role: partial.role!,
@@ -92,6 +93,7 @@ async function main(): Promise<void> {
         site: partial.site ?? "apple",
         maxResults: partial.maxResults,
         maxYearsExperience: partial.maxYearsExperience,
+        additionalCriteria: partial.additionalCriteria,
         outputs: partial.outputs ?? ["console"],
       };
 
@@ -115,7 +117,7 @@ async function main(): Promise<void> {
           process.exitCode = 1;
           return;
         }
-        writers.push(new GoogleSheetsWriter(context, config.googleSheets));
+        writers.push(new GoogleSheetsWriter(context, config.googleSheets, config.headless));
       } else {
         logger.warn(`Unknown output writer "${output}" — ignoring.`);
       }
@@ -131,6 +133,7 @@ async function main(): Promise<void> {
       location: args.location,
       maxResults: args.maxResults,
       maxYearsExperience: args.maxYearsExperience,
+      additionalCriteria: args.additionalCriteria,
     };
 
     const runner = new JobSearchRunner(registry, writers, buildRelevanceMatcher(config));

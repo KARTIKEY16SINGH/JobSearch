@@ -4,8 +4,10 @@ import type { PartialCliArgs, CliArgs } from "./args";
 export interface InteractiveContext {
   /** Site names available in the scraper registry, for the site prompt. */
   availableSites: string[];
-  /** Whether Google Sheets output is usable (GOOGLE_SHEET_URL configured). */
+  /** Whether Google Sheets output is usable (googleSheets.sheetUrl configured). */
   sheetsConfigured: boolean;
+  /** Whether an AI provider is configured — additionalCriteria is only honored when this is true. */
+  aiEnabled: boolean;
 }
 
 /**
@@ -51,6 +53,19 @@ export async function runInteractivePrompts(
       "Only keep jobs requiring at most this many years of experience (blank = any)"
     );
 
+    if (!ctx.aiEnabled) {
+      console.log(
+        "(Extra filter criteria below only take effect with AI-based filtering — set ai.provider " +
+          "in src/config/app.config.ts to enable it. You can still answer; it'll just be ignored for now.)"
+      );
+    }
+    const additionalCriteria = await askOptional(
+      rl,
+      partial,
+      "additionalCriteria",
+      "Any other filtering criteria? (free text, e.g. \"prefer hybrid or remote\", \"avoid people-management roles\" — blank = none)"
+    );
+
     const outputs = await askOutputs(rl, partial, ctx.sheetsConfigured);
 
     console.log("\nReady:");
@@ -59,6 +74,7 @@ export async function runInteractivePrompts(
     console.log(`  Location:   ${location ?? "(any)"}`);
     console.log(`  Max jobs:   ${maxResults ?? "(no limit)"}`);
     console.log(`  Experience: ${maxYearsExperience !== undefined ? `up to ${maxYearsExperience} years` : "(any)"}`);
+    console.log(`  Other:      ${additionalCriteria ?? "(none)"}`);
     console.log(`  Output:     ${outputs.join(", ")}\n`);
 
     const proceed = await askYesNo(rl, "Start the search?", true);
@@ -67,7 +83,7 @@ export async function runInteractivePrompts(
       process.exit(0);
     }
 
-    return { role, site, location, maxResults, maxYearsExperience, outputs };
+    return { role, site, location, maxResults, maxYearsExperience, additionalCriteria, outputs };
   } finally {
     rl.close();
   }
@@ -94,7 +110,7 @@ async function askRequired(
 async function askOptional(
   rl: readline.Interface,
   partial: PartialCliArgs,
-  key: "location",
+  key: "location" | "additionalCriteria",
   question: string
 ): Promise<string | undefined> {
   if (partial[key] !== undefined && !partial.interactive) return partial[key];

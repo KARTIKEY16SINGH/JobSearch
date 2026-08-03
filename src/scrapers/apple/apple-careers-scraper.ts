@@ -111,6 +111,7 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
       const title = (await this.safeText(page, AppleSelectors.detail.title)) ?? summary.title;
       const location = (await this.extractLocation(page)) ?? summary.location ?? UNKNOWN_LOCATION;
       const team = await this.extractTeam(page);
+      const employmentType = this.extractEmploymentTypeFromTitle(title) ?? UNKNOWN_LOCATION;
       const description = (await this.safeText(page, AppleSelectors.detail.description)) ?? "";
       const postedDate = await this.extractPostedDate(page);
       const applyUrl =
@@ -121,6 +122,7 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
         title,
         location,
         ...(team ? { team } : {}),
+        employmentType,
         description,
         ...(postedDate ? { postedDate } : {}),
         applyUrl: this.toAbsoluteUrl(applyUrl),
@@ -234,9 +236,55 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
         continue;
       }
 
+      // Captured before clicking so we can confirm the results actually
+      // changed afterward — see the comment below on why that check
+      // matters.
+      const resultLinkSelector = AppleSelectors.search.resultLinks;
+      const firstLinkBefore = await page
+        .locator(resultLinkSelector)
+        .first()
+        .getAttribute("href")
+        .catch(() => null);
+
       try {
         await locator.click({ timeout: 5000 });
         await page.waitForLoadState("domcontentloaded");
+
+        // Clicking "Next Page" triggers a client-side re-render (an XHR/
+        // fetch under the hood), not a full page navigation, so
+        // domcontentloaded above resolves almost immediately — often
+        // BEFORE the new page's jobs have actually replaced the old
+        // ones in the DOM. Scraping right then silently re-collects the
+        // previous page's links (which look like "0 new jobs" once
+        // dedup kicks in) instead of the next page's real content.
+        // Waiting for the first result link's href to actually change
+        // confirms the swap has happened before we read the page.
+        //
+        // The callback below runs inside the browser page, not in Node —
+        // `document` is a real global there even though the Node-only
+        // tsconfig `lib` doesn't declare it. Casting through `globalThis`
+        // keeps the rest of the project on Node-only types instead of
+        // pulling in the whole DOM lib just for this one call.
+        const changed = await page
+          .waitForFunction(
+            ({ selector, prevHref }) => {
+              const doc = (globalThis as any).document;
+              const link = doc.querySelector(selector);
+              return !!link && link.getAttribute("href") !== prevHref;
+            },
+            { selector: resultLinkSelector, prevHref: firstLinkBefore },
+            { timeout: 10_000 }
+          )
+          .then(() => true)
+          .catch(() => false);
+
+        if (!changed) {
+          this.logger.progress(
+            `  ↳ Clicked "${candidate}" but the results list didn't appear to change within 10s — ` +
+              "the next page's contents may be stale/duplicated."
+          );
+        }
+
         this.logger.progress(`  ↳ Advanced to next page via "${candidate}".`);
         return true;
       } catch (error) {
@@ -279,6 +327,32 @@ export class AppleCareersScraper extends AbstractCareerSiteScraper {
 
   private async extractTeam(page: Page): Promise<string | undefined> {
     return this.safeText(page, AppleSelectors.detail.team);
+  }
+
+  /**
+   * Best-effort only: Apple's detail page doesn't have a confirmed,
+   * dedicated "employment type" field as of the last DOM check (unlike
+   * location/team, which do). Some titles include a hint like
+   * "US - Specialist: Seasonal, Part-time" — this catches that pattern,
+   * but most titles won't mention it at all, so this will often fall
+   * back to NOT_SPECIFIED. If you find where this actually lives on the
+   * page (e.g. near "Weekly Hours"), share that DOM and this can be
+   * fixed properly instead of guessing from title text.
+   */
+  private extractEmploymentTypeFromTitle(title: string): string | undefined {
+    const patterns: Array<[RegExp, string]> = [
+      [/\bpart[- ]?time\b/i, "Part-time"],
+      [/\bfull[- ]?time\b/i, "Full-time"],
+      [/\bseasonal\b/i, "Seasonal"],
+      [/\bintern(ship)?\b/i, "Internship"],
+      [/\bcontract(or)?\b/i, "Contract"],
+      [/\bremote\b/i, "Remote"],
+      [/\bhybrid\b/i, "Hybrid"],
+    ];
+    for (const [pattern, label] of patterns) {
+      if (pattern.test(title)) return label;
+    }
+    return undefined;
   }
 
   private async extractPostedDate(page: Page): Promise<string | undefined> {

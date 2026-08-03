@@ -39,7 +39,7 @@ export const appConfig = {
      * "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOp/edit"
      * Leave as "" to disable Google Sheets output entirely.
      */
-    sheetUrl: "",
+    sheetUrl: "https://docs.google.com/spreadsheets/d/1WkPkwzbZJzK-qlQd8xe3dWrEjXX_UoinciXhBl44tV8/edit?gid=0#gid=0",
 
     /**
      * Name of the sheet/tab to write into. Leave as "" to use whichever

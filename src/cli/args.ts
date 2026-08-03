@@ -4,6 +4,7 @@ export interface CliArgs {
   site: string;
   maxResults?: number;
   maxYearsExperience?: number;
+  additionalCriteria?: string;
   outputs: string[];
 }
 
@@ -14,6 +15,7 @@ export interface PartialCliArgs {
   site?: string;
   maxResults?: number;
   maxYearsExperience?: number;
+  additionalCriteria?: string;
   outputs?: string[];
   /** Forces interactive prompts even when enough flags were given to skip them. */
   interactive: boolean;
@@ -31,6 +33,7 @@ Options:
   --site <name>             Career site to search (default: apple)
   --max <n>                 Maximum number of jobs to fully extract
   --max-experience <n>       Only keep jobs requiring at most n years of experience
+  --criteria <text>          Extra free-text filter criteria — only honored with AI matching on
   --output <list>            Comma-separated writers to use: console,sheets (default: console)
   --interactive               Prompt for every option even if flags were also given
   --help                       Show this message
@@ -73,6 +76,7 @@ export function parseCliArgs(argv: string[]): PartialCliArgs {
     site: flags.get("site"),
     maxResults: maxRaw ? Number(maxRaw) : undefined,
     maxYearsExperience: maxExperienceRaw ? Number(maxExperienceRaw) : undefined,
+    additionalCriteria: flags.get("criteria"),
     outputs: outputRaw
       ? outputRaw
           .split(",")

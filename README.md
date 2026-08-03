@@ -104,13 +104,24 @@ now.
 persistent profile — it never handles credentials itself. The first time
 you want to write to Sheets:
 
-1. Keep `headless: false` in `app.config.ts`.
+1. Keep `headless: false` in `app.config.ts` — **this matters**: headless
+   mode has no visible window for you to log into, so if it detects
+   you're not logged in while headless, it fails immediately with an
+   explanation instead of hanging or silently doing nothing.
 2. Run the app with `--output sheets` (see below).
 3. A visible Chromium window opens the target sheet. If it lands on a
-   Google sign-in page, log in manually in that window.
+   Google sign-in page, the terminal will pause and print:
+   ```
+   Google Sheets isn't logged in on this browser profile.
+   A browser window should be open on the sign-in page — log in there now.
+   Press Enter here once you're logged in and can see the spreadsheet...
+   ```
+   Log in in the window, then come back and press Enter in the terminal —
+   the run continues from there rather than failing.
 4. The session is saved to the `userDataDir` folder and reused on every
    future run — headless or not — until the session expires or you
-   delete that folder.
+   delete that folder. Once logged in once, you can switch back to
+   `headless: true` for future runs.
 
 ## Usage
 
@@ -350,22 +361,64 @@ into zero results.
 
 ## How the experience filter works
 
-`--max-experience <n>` (or the interactive prompt) keeps only jobs whose
-description mentions a minimum years-of-experience requirement of `n` or
-fewer. This is parsed from Apple's "Minimum Qualifications" section with
-regex, in `src/core/experience.ts` — job postings phrase this
-inconsistently ("6+ years of relevant experience", "3-5 years
-experience", "minimum of 2 years professional experience"), so it's
-best-effort text matching, not a guarantee.
+`--max-experience <n>` (or the interactive prompt) applies in up to two
+layers depending on whether AI matching is on:
 
-Two behaviors worth knowing:
-- If a posting lists more than one qualifying path (e.g. "6+ years
-  experience, or a Master's degree with 2 years"), the smallest number
-  found is used — that's the easiest path to qualify under, matching what
-  "7 years or less" most likely means to you.
-- If no experience requirement could be detected at all, the job is kept
-  rather than dropped (same fail-open principle as the location filter),
-  and the run logs how many jobs fell into this bucket.
+1. **Deterministic backstop (always runs, any matcher):** looks for an
+   explicit "N years" mention in the description via regex, in
+   `src/core/experience.ts` — job postings phrase this inconsistently
+   ("6+ years of relevant experience", "3-5 years experience", "minimum
+   of 2 years professional experience"), so it's best-effort text
+   matching, not a guarantee. If a posting lists more than one qualifying
+   path (e.g. "6+ years experience, or a Master's degree with 2 years"),
+   the smallest number is used. If no number is found at all, the job is
+   **kept, not dropped** (fails open, like the location filter) — a job
+   with an unstated requirement isn't the same as one that violates the
+   cap. The run logs each job's outcome and why.
+2. **AI judgment (only when `ai.provider` is set):** the same extracted
+   number is sent to the AI as a hint alongside title/team, and the AI is
+   told the cap directly and asked to also use judgment about seniority
+   cues in the title (e.g. "Senior", "Lead", "Director" usually implies
+   more years even when none is explicitly stated) — see the next
+   section. This is what actually fixed jobs like a "Field Engineering
+   Lead" role (explicitly stating "10+ years") slipping through when only
+   the keyword matcher's blind regex pass was being relied on.
+
+## Adding custom filter criteria (AI matching only)
+
+Beyond role/location/experience, you can hand the AI matcher free-text
+criteria to weigh — `--criteria "<text>"`, or just answer the interactive
+prompt for it. Examples: `"prefer hybrid or remote roles"`, `"avoid
+people-management titles"`, `"only individual-contributor roles"`.
+
+This is only honored when `ai.provider` is set to `"openai"` or
+`"gemini"` in `app.config.ts` — the keyword matcher can't reasonably
+interpret free text, so if you supply this with AI matching off, the run
+logs a warning that it's being ignored rather than silently dropping it.
+
+## Output columns
+
+Both `ConsoleWriter` and `GoogleSheetsWriter` use the same column set and
+order, so the terminal output is always a faithful preview of what lands
+in the sheet: `S.No.`, `Job Id`, `Company`, `Role Type` (the job's team),
+`Opening Heading` (title), `Location Available`, `Type` (employment
+type), `Job Description`, `Job Link`.
+
+`Type` (Full-time/Part-time/Remote/Hybrid/etc.) is best-effort only —
+Apple's detail page doesn't have a confirmed dedicated field for this
+(unlike location/team, which do), so it's inferred from patterns in the
+job title and falls back to "Not specified" when nothing matches. If you
+find where this actually lives on the page, share that DOM and it can be
+fixed properly instead of guessing from title text.
+
+## A pagination note
+
+Clicking "Next Page" on Apple's results is a client-side re-render, not a
+full page navigation — the scraper waits for the first result link's
+`href` to actually change before reading the new page, rather than just
+waiting for the click to register, since the latter was scraping the
+still-stale previous page's content (showing up as "0 new jobs found" on
+page 2+ even when more results existed).
 
 ## Extending: adding a new career site
 
